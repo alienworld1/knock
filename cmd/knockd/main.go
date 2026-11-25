@@ -9,6 +9,7 @@ import (
 
 	"knock/internal/command"
 	"knock/internal/door"
+	"knock/internal/lease"
 
 	"github.com/spf13/cobra"
 )
@@ -65,6 +66,32 @@ func root() *cobra.Command {
 					return serveAdmission(cmd, config, keys)
 				}
 				return command.Exit(3, door.Serve(cmd.Context(), config, keys, command.Progress))
+			},
+		},
+	)
+	root.AddCommand(
+		&cobra.Command{
+			Use: "expire-ssh <session>", Hidden: true, Args: cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				call, cancel := context.WithTimeout(cmd.Context(), 25*time.Second)
+				defer cancel()
+				if err := lease.Expire(call, args[0]); err != nil {
+					return command.Exit(7, fmt.Errorf("Session %s · Cleanup incomplete: %w", args[0], err))
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), "SSH expiry cleanup completed")
+				return nil
+			},
+		},
+		&cobra.Command{
+			Use: "ssh-role <role> <session>", Hidden: true, Args: cobra.ExactArgs(2),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return command.Exit(1, lease.Role(args[0], args[1], os.Getenv("SSH_ORIGINAL_COMMAND"), cmd.InOrStdin(), cmd.OutOrStdout()))
+			},
+		},
+		&cobra.Command{
+			Use: "ssh-workload", Hidden: true, Args: cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				return command.Exit(1, lease.LaunchWorkload())
 			},
 		},
 	)

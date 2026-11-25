@@ -1,6 +1,6 @@
 # Knock
 
-Knock lets people request private SSH access by a verified QoreChain Diana identity. An approver reviews the encrypted request and signs a decision for the Door to verify. The Door stays closed at this checkpoint.
+Knock grants short-lived, restricted SSH access to verified QoreChain Diana identities. An approver reviews the encrypted request. After approval, the Door opens a private connection and ends it at the fixed deadline.
 
 ## Build
 
@@ -13,7 +13,7 @@ make check
 
 ## Register and inspect a Door
 
-1. Create separate owner, Door, and approver profiles with `bin/knock --profile /path/to/identity.age identity init`. Keep each encrypted profile in a directory with permissions `0700`.
+1. Create separate owner, Door, approver, and requester profiles with `bin/knock --profile /path/to/identity.age identity init`. Keep each encrypted profile in a directory with permissions `0700`.
 2. Fund the printed addresses with test QOR, then run `bin/knock --profile /path/to/identity.age identity register` for each actor. Registration writes a public recipient card to stdout. [Diana faucet](https://dashboard.qorechain.io/faucet)
 3. Run `forge build --root contracts` and deploy with `go run ./contracts/cmd/deploy --profile /path/to/owner.age > network.json`. Keep the resulting registry address and code hash with your trusted configuration.
 4. Copy [the example](deploy/door.example.json) to `door.json`. Set the pinned registry, the actor addresses and profiles, and a unique 32-byte Door ID. Generate a Door ID with `openssl rand -hex 32` and prefix it with `0x`. If you configure multiple approvers, sort them by their EVM address bytes.
@@ -26,19 +26,19 @@ bin/knock --network network.json --cards cards door trust qor1... --alias valida
 bin/knock --network network.json --cards cards door show validator-ops
 ```
 
-An owner or eligible approver can call `knock revoke --door validator-ops <session-id>` with the same registry and Card options. Use `door show --revocation <session-id>` to read the finalized registry state. Session references are opaque 32-byte hex values prefixed with `0x`.
+An owner or eligible approver can record a revocation on Diana with `knock revoke --door validator-ops <session-id>`. Use `door show --revocation <session-id>` to read the finalized registry state. Live SSH access ends at the local deadline. Session references are opaque 32-byte hex values prefixed with `0x`.
 
 ## Request and review access
 
-For a single-machine lab, start the Mailbox with its default loopback origin.
+Start the Mailbox on a loopback address.
 
 ```sh
 bin/knockd mailbox --state "$HOME/.config/knock/mailbox/mailbox.db"
 ```
 
-Set `mailbox` and `state` in the Door configuration and republish its signed Card with `knockd register`. Give the requester and approver the updated Card and registry pin. For a remote Mailbox, use an HTTPS reverse proxy and set `--origin` to that HTTPS origin.
+Set `mailbox` and `state` in the Door configuration and republish its signed Card with `knockd register`. Give the requester and approver the updated Card and registry pin. For separate guests, forward the same loopback port to each guest over management SSH. For a remote Mailbox, use an HTTPS reverse proxy and set `--origin` to that HTTPS origin.
 
-From the approver's profile, publish its registered recipient card once. Start the Door with the service instructions below. Use separate terminals for the requester and approver. Copy the waiting request ID into `request_id` before running `show` or `approve`.
+Start the Door and prepare the requester VM using the service instructions below. Publish the approver's registered recipient card once. Use separate terminals for the requester and approver. Copy the waiting request ID into `request_id` before running `show` or `approve`.
 
 ```sh
 bin/knock --profile approver.age --mailbox http://127.0.0.1:8180 identity publish
@@ -54,21 +54,31 @@ bin/knock --profile approver.age --network network.json --cards cards \
   --mailbox http://127.0.0.1:8180 approve "$request_id"
 ```
 
-Use `deny` to decline. The requester waits up to five minutes and reports the Door's verified outcome. Keep the requester running while you review. Its one-time reply key lives in memory and is cleared on exit on a best-effort basis. `Authorized` means the Door accepted the exact decision. SSH provisioning comes later.
+Use `deny` to decline. Keep the requester running while you review. After a grant, Knock opens the restricted SSH menu and shows the fixed expiry in UTC. The `logs` role can read host uptime with `status`. The `maintenance` role can also use `start` to launch one contained diagnostic workload. Use `quit` to leave SSH. The Door ends access and stops the workload at expiry even if the requester or Mailbox has disconnected.
 
 Enter the reason with `--reason -` to keep it out of shell history. The Mailbox can see delivery accounts, timing, sizes, opaque message IDs, and expiry. Reasons are encrypted for approvers. Expired messages are pruned from the live queue. Old disk pages and backups may retain ciphertext.
 
-## Run a closed Door
+## Run an SSH Door
 
-Install `knockd` at `/usr/local/bin/knockd` and create the unprivileged `knock` user and group. Place `door.json`, the signed Card, and the Door's age profile under `/etc/knock` with paths matching the configuration. The profile must be readable only by `knock` with permissions `0600`. Keep the owner's profile on the operator machine.
+Use a dedicated, always-on Ubuntu 24.04 VM with cgroup v2, WireGuard, nftables, and OpenSSH. Keep time synchronized and disable suspend. Keep management SSH on a separate network. Knock reserves the `knockdoor` interface, the `knock_ssh` nftables table, and private addresses `198.19.0.1` and `198.19.0.2`. This setup serves one SSH session at a time.
+
+Set `wireGuardEndpoint` in the private Door configuration to a numeric address and UDP port reachable by the requester, for example `198.18.0.1:48001` in the lab. Permit that UDP port on the Door's external interface. Leave the private SSH listener behind Knock's firewall. Install the files under `/etc/knock` with root ownership and the Door profile at mode `0600`. Keep the owner profile on the operator machine.
 
 ```sh
+sudo install -m 0755 bin/knockd /usr/local/bin/knockd
+sudo useradd --system --no-create-home --home-dir / --shell /bin/sh --password NP knockssh
+sudo install -d -m 0755 /run/sshd /etc/systemd/system/knockd.service.d
 systemd-ask-password 'Door passphrase' |
   sudo systemd-creds encrypt --name=door-passphrase --with-key=host - /etc/knock/door.cred
 sudo install -m 0644 deploy/systemd/knockd.service /etc/systemd/system/knockd.service
+sudo install -m 0644 deploy/systemd/10-ssh.conf /etc/systemd/system/knockd.service.d/10-ssh.conf
 sudo systemctl daemon-reload
 sudo systemctl start knockd
 ```
+
+On the requester VM, install `bin/knock` at `/usr/local/bin/knock` as root, plus WireGuard tools and OpenSSH. In a regular Linux login session, grant the requester's local group the two tunnel commands in [the sudoers example](deploy/knock-tunnel.sudoers). Install it with `sudo visudo -f /etc/sudoers.d/knock-tunnel`. The SSH client runs as the requester.
+
+The requester holds its one-time keys in memory and uses private tmpfs files for OpenSSH. Knock removes these files and its temporary tunnel on normal exit. Key disposal is best-effort.
 
 The host credential key and the encrypted credential require storage protection against full disk access. Registry and key verification use trusted Diana endpoints. QoreSeal is a draft pending external review. [QoreSeal documentation](https://docs.qorechain.io/developer-tools/qoreseal/)
 

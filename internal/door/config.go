@@ -10,22 +10,24 @@ import (
 	"path/filepath"
 
 	"knock/internal/chain"
+	"knock/internal/lease"
 	"knock/internal/protocol"
 
 	"github.com/ethereum/go-ethereum/common"
 )
 
 type Config struct {
-	Registry     chain.Registry `json:"registry"`
-	DoorID       common.Hash    `json:"doorId"`
-	Owner        string         `json:"owner"`
-	Account      string         `json:"account"`
-	OwnerProfile string         `json:"ownerProfile"`
-	DoorProfile  string         `json:"doorProfile"`
-	Cards        string         `json:"cards"`
-	Mailbox      string         `json:"mailbox,omitempty"`
-	State        string         `json:"state,omitempty"`
-	Policy       Policy         `json:"policy"`
+	Registry          chain.Registry `json:"registry"`
+	DoorID            common.Hash    `json:"doorId"`
+	Owner             string         `json:"owner"`
+	Account           string         `json:"account"`
+	OwnerProfile      string         `json:"ownerProfile"`
+	DoorProfile       string         `json:"doorProfile"`
+	Cards             string         `json:"cards"`
+	Mailbox           string         `json:"mailbox,omitempty"`
+	State             string         `json:"state,omitempty"`
+	WireGuardEndpoint string         `json:"wireGuardEndpoint,omitempty"`
+	Policy            Policy         `json:"policy"`
 }
 
 func ReadConfig(path string, output any) error {
@@ -62,6 +64,14 @@ func LoadConfig(path string) (Config, error) {
 	if config.Mailbox != "" {
 		if _, err := protocol.Origin(config.Mailbox); err != nil {
 			return config, err
+		}
+	}
+	if config.WireGuardEndpoint != "" {
+		if _, err := lease.ValidateEndpoint(config.WireGuardEndpoint); err != nil {
+			return config, err
+		}
+		if config.Mailbox == "" || config.State == "" {
+			return config, errors.New("SSH access requires a Mailbox and a Door admission state file")
 		}
 	}
 	if _, err := config.Policy.ChainPolicy(); err != nil {

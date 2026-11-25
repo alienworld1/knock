@@ -32,6 +32,7 @@ func Decode(data []byte, value any) error {
 		return errors.New("invalid protocol record")
 	}
 	canonical, err := Encode(value)
+	defer clear(canonical)
 	if err != nil || !bytes.Equal(data, canonical) {
 		return errors.New("noncanonical protocol record")
 	}
@@ -40,6 +41,7 @@ func Decode(data []byte, value any) error {
 
 func Digest(value any) (common.Hash, error) {
 	raw, err := Encode(value)
+	defer clear(raw)
 	if err != nil {
 		return common.Hash{}, err
 	}
@@ -55,6 +57,7 @@ func signBytes(purpose string, value any) ([]byte, error) {
 
 func Sign(keys *identity.Keys, purpose string, value any) (qoresign.MessageSignature, error) {
 	raw, err := signBytes(purpose, value)
+	defer clear(raw)
 	if err != nil {
 		return qoresign.MessageSignature{}, err
 	}
@@ -66,6 +69,7 @@ func Sign(keys *identity.Keys, purpose string, value any) (qoresign.MessageSigna
 
 func Verify(account string, key []byte, purpose string, value any, signature qoresign.MessageSignature) error {
 	raw, err := signBytes(purpose, value)
+	defer clear(raw)
 	if err != nil {
 		return err
 	}

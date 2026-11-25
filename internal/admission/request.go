@@ -6,12 +6,14 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
 
 	"knock/internal/door"
 	"knock/internal/identity"
+	"knock/internal/lease"
 	"knock/internal/mailbox"
 	"knock/internal/protocol"
 
@@ -177,44 +179,106 @@ func (r *Request) StatusID() common.Hash {
 	return recordID(statusPurpose, r.auth.DoorID, r.auth.RequestID, "")
 }
 
+type Response struct {
+	Outcome    Outcome
+	Deadline   time.Time
+	Connection lease.Connection
+}
+
+func (r *Request) ConnectionID() common.Hash {
+	return connectionID(SessionReference(r.auth.DoorID, r.auth.RequestID))
+}
+
 func (r *Request) ReadStatus(ctx context.Context, authority Authority, message mailbox.Message) (Outcome, error) {
+	response, err := r.ReadResponse(ctx, authority, message)
+	clear(response.Connection.PSK[:])
+	return response.Outcome, err
+}
+
+func (r *Request) ReadResponse(ctx context.Context, authority Authority, message mailbox.Message) (Response, error) {
+	var result Response
 	a := r.auth
-	id := r.StatusID()
-	if message.ID != id || message.Route != a.Requester.Account {
-		return "", ErrInvalid
+	purpose := statusPurpose
+	switch message.ID {
+	case r.ConnectionID():
+		purpose = connectionPurpose
+	case r.StatusID():
+	default:
+		return result, ErrInvalid
+	}
+	if message.Route != a.Requester.Account {
+		return result, ErrInvalid
 	}
 	var signed signedStatus
-	if err := open(message.Body, id, statusPurpose, r.reply, 1, &signed); err != nil {
-		return "", err
+	if err := open(message.Body, message.ID, purpose, r.reply, 1, &signed); err != nil {
+		return result, err
 	}
 	s := signed.Record
+	if s.Connection != nil {
+		defer clear(s.Connection.Data.PSK[:])
+	}
 	reply, err := protocol.Digest(qoreseal.RecipientOf(r.reply))
 	if err != nil {
-		return "", err
+		return result, err
 	}
 	digest, err := protocol.Digest(a)
 	if err != nil {
-		return "", err
+		return result, err
 	}
+	now := time.Now()
 	if s.RequestID != a.RequestID || s.Session != SessionReference(a.DoorID, a.RequestID) ||
 		s.Authorization != digest || s.Manifest != r.manifest || s.Decision == (common.Hash{}) ||
 		s.Door != a.Door || s.Reply != reply || s.Deadline != a.Deadline || s.Issued < a.Created-5 ||
-		s.Issued >= a.Deadline || s.Issued > time.Now().Unix()+5 || (s.Outcome != Authorized && s.Outcome != Denied) {
-		return "", ErrInvalid
+		s.Issued >= a.Deadline || s.Issued > now.Unix()+5 {
+		return result, ErrInvalid
+	}
+	if purpose == connectionPurpose {
+		c := s.Connection
+		if s.Outcome != Ready || c == nil || c.Issued < a.Created-5 || c.Issued > s.Issued ||
+			c.Deadline <= c.Issued || uint64(c.Deadline-c.Issued) != a.Seconds ||
+			c.Deadline <= now.Unix() || message.Expires != min(c.Deadline, a.Deadline+120) {
+			return result, ErrInvalid
+		}
+		wg, err := ecdh.X25519().NewPrivateKey(r.wg)
+		if err != nil || c.ClientWireGuard != [32]byte(wg.PublicKey().Bytes()) {
+			return result, ErrInvalid
+		}
+		sshPublic := r.ssh.Public().(ed25519.PublicKey)
+		if err := c.Data.Validate(lease.Grant{ID: hex.EncodeToString(s.Session[:]), Deadline: time.Unix(c.Deadline, 0), SSH: [32]byte(sshPublic)}); err != nil {
+			return result, ErrInvalid
+		}
+	} else if s.Connection != nil || (s.Outcome != Authorized && s.Outcome != Denied && s.Outcome != ProvisionFailed) {
+		return result, ErrInvalid
 	}
 	card, err := authority.Door(ctx, a.Door.Account)
 	if err != nil {
-		return "", err
+		return result, err
 	}
 	if err := a.valid(card.Details, time.Now().Unix()); err != nil {
-		return "", err
+		return result, err
 	}
 	actor, err := authority.Actor(ctx, card.Details, a.Door.Account, card.Details.Recipient)
 	if err != nil {
-		return "", err
+		return result, err
 	}
-	if actor.Binding != a.Door || protocol.Verify(a.Door.Account, actor.Signing, statusPurpose, s, signed.Signature) != nil {
-		return "", ErrInvalid
+	if actor.Binding != a.Door || protocol.Verify(a.Door.Account, actor.Signing, purpose, s, signed.Signature) != nil {
+		return result, ErrInvalid
 	}
-	return s.Outcome, nil
+	result.Outcome = s.Outcome
+	if s.Connection != nil {
+		result.Deadline = time.Unix(s.Connection.Deadline, 0)
+		if !time.Now().Before(result.Deadline) {
+			return Response{}, ErrExpired
+		}
+		result.Connection = s.Connection.Data
+	}
+	return result, nil
+}
+
+func (r *Request) Connect(ctx context.Context, response Response, streams lease.Streams) error {
+	defer clear(response.Connection.PSK[:])
+	if response.Outcome != Ready {
+		return ErrInvalid
+	}
+	return lease.Connect(ctx, r.wg, r.ssh, response.Connection, response.Deadline, streams)
 }

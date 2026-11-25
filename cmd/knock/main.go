@@ -38,6 +38,7 @@ func root() *cobra.Command {
 	root.PersistentFlags().StringVar(&s.cards, "cards", "", "directory containing signed Door Cards")
 	root.PersistentFlags().StringVar(&s.mailbox, "mailbox", "", "Mailbox origin for operator commands")
 	s.requestFlags(root)
+	root.AddCommand(tunnelCommand("up"), tunnelCommand("down"))
 	root.AddCommand(s.identityCommands(), s.doorCommands(), s.revokeCommand(), s.requestsCommand(),
 		s.decisionCommand("approve", admission.Authorized), s.decisionCommand("deny", admission.Denied))
 	return root

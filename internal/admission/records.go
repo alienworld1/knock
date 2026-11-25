@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"knock/internal/door"
+	"knock/internal/lease"
 	"knock/internal/mailbox"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -20,13 +21,14 @@ const (
 	RequestLifetime = 5 * time.Minute
 	MaxReason       = 512
 
-	doorInner       = "knock-door-intent-v1"
-	reviewInner     = "knock-approval-intent-v1"
-	doorDelivery    = "knock-door-delivery-v1"
-	reviewDelivery  = "knock-approval-delivery-v1"
-	manifestPurpose = "knock-request-manifest-v1"
-	decisionPurpose = "knock-entry-pass-v1"
-	statusPurpose   = "knock-admission-status-v1"
+	doorInner         = "knock-door-intent-v1"
+	reviewInner       = "knock-approval-intent-v1"
+	doorDelivery      = "knock-door-delivery-v1"
+	reviewDelivery    = "knock-approval-delivery-v1"
+	manifestPurpose   = "knock-request-manifest-v1"
+	decisionPurpose   = "knock-entry-pass-v1"
+	statusPurpose     = "knock-admission-status-v1"
+	connectionPurpose = "knock-ssh-connection-v1"
 )
 
 var (
@@ -125,10 +127,12 @@ type signedDecision struct {
 type Outcome string
 
 const (
-	Pending    Outcome = "Requested"
-	Authorized Outcome = "Authorized"
-	Denied     Outcome = "Denied"
-	Expired    Outcome = "Request expired"
+	Pending         Outcome = "Requested"
+	Authorized      Outcome = "Authorized"
+	Denied          Outcome = "Denied"
+	Expired         Outcome = "Request expired"
+	Ready           Outcome = "Ready"
+	ProvisionFailed Outcome = "Provisioning failed"
 )
 
 type status struct {
@@ -142,6 +146,18 @@ type status struct {
 	Outcome       Outcome
 	Issued        int64
 	Deadline      int64
+	Connection    *connection `cbor:",omitempty"`
+}
+
+type connection struct {
+	Issued          int64
+	Deadline        int64
+	ClientWireGuard [32]byte
+	Data            lease.Connection
+}
+
+func connectionID(session common.Hash) common.Hash {
+	return recordID(connectionPurpose, session, common.Hash{}, "")
 }
 
 type signedStatus struct {

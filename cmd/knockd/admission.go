@@ -14,6 +14,7 @@ import (
 	"knock/internal/command"
 	"knock/internal/door"
 	"knock/internal/identity"
+	"knock/internal/lease"
 	"knock/internal/mailbox"
 	"knock/internal/protocol"
 
@@ -124,14 +125,34 @@ func serveAdmission(cmd *cobra.Command, config door.Config, keys *identity.Keys)
 	if err != nil {
 		return command.Exit(2, err)
 	}
-	host := admission.Host{Authority: authority, Keys: keys, Journal: journal}
+	host := admission.Host{Authority: authority, Keys: keys, Journal: journal, Progress: command.Progress}
+	if config.WireGuardEndpoint != "" {
+		host.SSH, err = lease.StartHost(call, config.WireGuardEndpoint)
+		if err != nil {
+			return command.Exit(6, err)
+		}
+		defer host.SSH.Release()
+		group, ctx := errgroup.WithContext(cmd.Context())
+		fmt.Fprintln(cmd.ErrOrStderr(), "Door verified. SSH access is closed until approval.")
+		group.Go(func() error { return host.MonitorSSH(ctx) })
+		group.Go(func() error { return pollAdmission(ctx, cmd, host, relay) })
+		err = group.Wait()
+		cleanup, stop := context.WithTimeout(context.Background(), 18*time.Second)
+		defer stop()
+		if cleanupErr := host.SSH.CloseCurrent(cleanup); cleanupErr != nil {
+			return command.Exit(7, errors.Join(err, cleanupErr))
+		}
+		return command.Exit(8, err)
+	}
 	fmt.Fprintln(cmd.ErrOrStderr(), "Door verified and closed")
+	return pollAdmission(cmd.Context(), cmd, host, relay)
+}
+
+func pollAdmission(ctx context.Context, cmd *cobra.Command, host admission.Host, relay *mailbox.Client) error {
 	failures := 0
 	for {
-		poll, stop := context.WithTimeout(cmd.Context(), 55*time.Second)
-		err := host.Poll(poll, relay)
-		stop()
-		if cmd.Context().Err() != nil {
+		err := host.Poll(ctx, relay)
+		if ctx.Err() != nil {
 			return nil
 		}
 		if err != nil && failures == 0 {
@@ -147,7 +168,7 @@ func serveAdmission(cmd *cobra.Command, config door.Config, keys *identity.Keys)
 		}
 		timer := time.NewTimer(mailbox.PollDelay(failures))
 		select {
-		case <-cmd.Context().Done():
+		case <-ctx.Done():
 			timer.Stop()
 			return nil
 		case <-timer.C:

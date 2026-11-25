@@ -1,0 +1,2 @@
+# Replace knockclient with the local requester account's group on its dedicated VM.
+%knockclient ALL=(root) NOPASSWD: /usr/local/bin/knock ^tunnel-(up|down)\ kc[0-9a-f]{12}$

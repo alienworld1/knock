@@ -17,6 +17,7 @@ import (
 	"knock/internal/command"
 	"knock/internal/door"
 	"knock/internal/identity"
+	"knock/internal/lease"
 	"knock/internal/mailbox"
 	"knock/internal/protocol"
 
@@ -108,10 +109,10 @@ func waitForDecision(cmd *cobra.Command, authority admission.Authority, relay *m
 		transportError := err != nil
 		verificationError := false
 		for _, message := range messages {
-			if message.ID != request.StatusID() {
+			if message.ID != request.StatusID() && message.ID != request.ConnectionID() {
 				continue
 			}
-			outcome, err := request.ReadStatus(ctx, authority, message)
+			response, err := request.ReadResponse(ctx, authority, message)
 			switch {
 			case errors.Is(err, admission.ErrInvalid):
 				continue
@@ -125,11 +126,20 @@ func waitForDecision(cmd *cobra.Command, authority admission.Authority, relay *m
 			ackCtx, stop := context.WithTimeout(ctx, time.Second)
 			_ = relay.Ack(ackCtx, message.ID)
 			stop()
-			if outcome == admission.Denied {
+			switch response.Outcome {
+			case admission.Denied:
 				return command.Exit(4, errors.New("Request denied"))
+			case admission.ProvisionFailed:
+				return command.Exit(6, errors.New("Couldn't prepare SSH access. Contact the Door operator."))
+			case admission.Ready:
+				defer clear(response.Connection.PSK[:])
+				fmt.Fprintf(cmd.ErrOrStderr(), "Access granted · Expires %s UTC\nConnecting…\n", response.Deadline.UTC().Format("15:04:05"))
+				err := request.Connect(cmd.Context(), response, lease.Streams{In: cmd.InOrStdin(), Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr()})
+				return sshExit(err, cmd.ErrOrStderr())
+			default:
+				fmt.Fprintln(cmd.OutOrStdout(), "Authorized")
+				return nil
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "Authorized")
-			return nil
 		}
 		failed := transportError || verificationError
 		if ctx.Err() != nil {

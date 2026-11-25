@@ -95,7 +95,7 @@ func TestDianaPrivateAdmission(t *testing.T) {
 		t.Fatal("fixture must bind the disposable approver to the current policy")
 	}
 	journal, _ := journalAt(t, filepath.Join(t.TempDir(), "private", "journal"))
-	host := Host{authority, hostKeys, journal}
+	host := Host{Authority: authority, Keys: hostKeys, Journal: journal}
 	r, messages, err := buildRequest(requester, card, publicCard(requester), requesterActor.Binding, doorActor,
 		[]Binding{reviewer.Binding}, []qoreseal.SealRecipient{reviewer.Recipient},
 		config.Policy.Roles[0], time.Second, testReason, time.Now())

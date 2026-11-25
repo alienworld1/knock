@@ -10,6 +10,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"knock/internal/identity"
+	"knock/internal/lease"
 	"knock/internal/mailbox"
 	"knock/internal/protocol"
 
@@ -21,6 +22,9 @@ type Host struct {
 	Authority Authority
 	Keys      *identity.Keys
 	Journal   *Journal
+	SSH       *lease.Host
+	Progress  func(string)
+	publish   func(context.Context, mailbox.Message) error
 }
 
 func (h Host) Receive(ctx context.Context, message mailbox.Message) error {
@@ -156,26 +160,15 @@ func (h Host) decide(ctx context.Context, signed signedDecision) error {
 	if err != nil || currentDoor != localBinding(h.Keys) {
 		return ErrInvalid
 	}
-	group, verify := errgroup.WithContext(ctx)
-	group.Go(func() error {
-		return verifyManifest(verify, h.Authority, card, currentDoor, a, wrapper.Manifest)
-	})
-	group.Go(func() error {
-		approver, err := h.Authority.Actor(verify, card.Details, d.Approver.Account, d.ApproverCard)
-		if err != nil {
+	session := SessionReference(a.DoorID, a.RequestID)
+	checkPolicy := func(ctx context.Context) error {
+		now := time.Now().Unix()
+		if now >= card.Details.Expires {
+			return ErrPolicy
+		}
+		if err := a.valid(card.Details, now); err != nil {
 			return err
 		}
-		if approver.Binding != d.Approver ||
-			protocol.Verify(d.Approver.Account, approver.Signing, decisionPurpose, d, signed.Signature) != nil {
-			return ErrInvalid
-		}
-		return nil
-	})
-	if err := group.Wait(); err != nil {
-		return err
-	}
-	session := SessionReference(a.DoorID, a.RequestID)
-	if d.Outcome == Authorized {
 		allowed, err := h.Authority.CanAdmit(ctx, card.Details, session)
 		if err != nil {
 			return err
@@ -183,15 +176,68 @@ func (h Host) decide(ctx context.Context, signed signedDecision) error {
 		if !allowed {
 			return ErrInvalid
 		}
+		return nil
 	}
-	notice, err := h.notice(a, body, d.Outcome, manifestHash, digest, session)
+	verify := func(ctx context.Context, fresh bool) error {
+		group, call := errgroup.WithContext(ctx)
+		group.Go(func() error {
+			return verifyManifest(call, h.Authority, card, currentDoor, a, wrapper.Manifest)
+		})
+		group.Go(func() error {
+			approver, err := h.Authority.Actor(call, card.Details, d.Approver.Account, d.ApproverCard)
+			if err != nil {
+				return err
+			}
+			if approver.Binding != d.Approver ||
+				protocol.Verify(d.Approver.Account, approver.Signing, decisionPurpose, d, signed.Signature) != nil {
+				return ErrInvalid
+			}
+			return nil
+		})
+		if fresh {
+			group.Go(func() error {
+				current, err := h.Authority.Door(call, a.Door.Account)
+				if err != nil {
+					return err
+				}
+				if err := a.valid(current.Details, time.Now().Unix()); err != nil {
+					return err
+				}
+				binding, err := CardBinding(current)
+				if err != nil || binding != currentDoor {
+					return ErrInvalid
+				}
+				return nil
+			})
+		}
+		if err := group.Wait(); err != nil {
+			return err
+		}
+		if d.Outcome == Authorized {
+			return checkPolicy(ctx)
+		}
+		return nil
+	}
+	if err := verify(ctx, false); err != nil {
+		return err
+	}
+	if d.Outcome == Authorized && h.SSH != nil {
+		if h.publish == nil {
+			return errors.New("the Door cannot publish a private connection response")
+		}
+		return h.provision(ctx, body, manifestHash, digest, session, func(ctx context.Context) error {
+			return verify(ctx, true)
+		}, checkPolicy)
+	}
+	notice, err := h.notice(a, body, d.Outcome, manifestHash, digest, session, nil)
 	if err != nil {
 		return err
 	}
-	return h.Journal.decide(a.RequestID, manifestHash, digest, d.Outcome, notice)
+	_, err = h.Journal.decide(a.RequestID, manifestHash, digest, d.Outcome, &notice, nil)
+	return err
 }
 
-func (h Host) notice(a authorization, body doorPayload, outcome Outcome, manifest, decision, session common.Hash) (mailbox.Message, error) {
+func (h Host) notice(a authorization, body doorPayload, outcome Outcome, manifest, decision, session common.Hash, conn *connection) (mailbox.Message, error) {
 	auth, err := protocol.Digest(a)
 	if err != nil {
 		return mailbox.Message{}, err
@@ -202,18 +248,25 @@ func (h Host) notice(a authorization, body doorPayload, outcome Outcome, manifes
 	}
 	record := status{
 		Authorization: auth, Manifest: manifest, Decision: decision, RequestID: a.RequestID,
-		Session: session, Door: a.Door, Reply: reply, Outcome: outcome, Issued: time.Now().Unix(), Deadline: a.Deadline,
+		Session: session, Door: a.Door, Reply: reply, Outcome: outcome, Issued: time.Now().Unix(), Deadline: a.Deadline, Connection: conn,
 	}
-	signature, err := protocol.Sign(h.Keys, statusPurpose, record)
+	purpose := statusPurpose
+	id := recordID(statusPurpose, a.DoorID, a.RequestID, "")
+	expires := a.Deadline + 120
+	if conn != nil {
+		purpose, id = connectionPurpose, connectionID(session)
+		expires = min(conn.Deadline, expires)
+	}
+	signature, err := protocol.Sign(h.Keys, purpose, record)
 	if err != nil {
 		return mailbox.Message{}, err
 	}
-	id := recordID(statusPurpose, a.DoorID, a.RequestID, "")
-	sealed, err := seal(signedStatus{record, signature}, id, statusPurpose, body.Reply)
-	return mailbox.Message{Route: body.ReplyRoute, ID: id, Expires: a.Deadline + 120, Body: sealed}, err
+	sealed, err := seal(signedStatus{record, signature}, id, purpose, body.Reply)
+	return mailbox.Message{Route: body.ReplyRoute, ID: id, Expires: expires, Body: sealed}, err
 }
 
 func (h Host) Poll(ctx context.Context, relay *mailbox.Client) error {
+	h.publish = relay.Send
 	if err := h.Journal.expire(time.Now().Unix()); err != nil {
 		return err
 	}
@@ -223,7 +276,7 @@ func (h Host) Poll(ctx context.Context, relay *mailbox.Client) error {
 	}
 	var deferred error
 	for _, message := range messages {
-		call, cancel := context.WithTimeout(ctx, 42*time.Second)
+		call, cancel := context.WithTimeout(ctx, 90*time.Second)
 		err := h.Receive(call, message)
 		cancel()
 		switch {

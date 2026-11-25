@@ -10,6 +10,7 @@
   "doorProfile": "door.age",
   "cards": "cards",
   "mailbox": "http://127.0.0.1:8180",
+  "wireGuardEndpoint": "198.18.0.1:48001",
   "state": "/var/lib/knock/admission.db",
   "policy": {
     "version": 1,

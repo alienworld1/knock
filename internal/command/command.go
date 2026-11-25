@@ -22,7 +22,12 @@ type failure struct {
 	err  error
 }
 
-func (e failure) Error() string { return e.err.Error() }
+func (e failure) Error() string {
+	if e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
 func (e failure) Unwrap() error { return e.err }
 
 func Exit(code int, err error) error {
@@ -31,6 +36,8 @@ func Exit(code int, err error) error {
 	}
 	return failure{code: code, err: err}
 }
+
+func SilentExit(code int) error { return failure{code: code} }
 
 func Run(root *cobra.Command) int {
 	if err := syscall.Setrlimit(syscall.RLIMIT_CORE, &syscall.Rlimit{}); err != nil {
@@ -43,7 +50,9 @@ func Run(root *cobra.Command) int {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if err := root.ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		if err.Error() != "" {
+			fmt.Fprintln(os.Stderr, err)
+		}
 		var exit failure
 		if errors.As(err, &exit) {
 			return exit.code
