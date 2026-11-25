@@ -103,7 +103,7 @@ func (a Binding) Matches(keys *identity.Keys) bool {
 	return a == localBinding(keys)
 }
 
-func verifyManifest(ctx context.Context, authority Authority, card door.Card, currentDoor Binding, a authorization, signed signedManifest) error {
+func verifyManifest(ctx context.Context, authority Authority, card door.Card, currentDoor Binding, a authorization, signed signedManifest) (Actor, error) {
 	m := signed.Record
 	d := card.Details
 	digest, err := protocol.Digest(a)
@@ -112,23 +112,23 @@ func verifyManifest(ctx context.Context, authority Authority, card door.Card, cu
 		m.Requester != a.Requester || m.Deadline != a.Deadline || m.Mode != d.Mode ||
 		m.DoorEnvelope == (common.Hash{}) || m.ReviewEnvelope == (common.Hash{}) ||
 		len(m.Approvers) != len(d.Policy.Approvers) {
-		return ErrInvalid
+		return Actor{}, ErrInvalid
 	}
 	for i, approver := range m.Approvers {
 		if approver.Account != d.Policy.Approvers[i] || approver.Account == a.Requester.Account || approver.Account == d.Account ||
 			approver.Signing == (common.Hash{}) || approver.KEM == (common.Hash{}) || approver.X25519 == (common.Hash{}) {
-			return ErrInvalid
+			return Actor{}, ErrInvalid
 		}
 	}
 	requester, err := authority.Actor(ctx, d, a.Requester.Account, m.RequesterCard)
 	if err != nil {
-		return err
+		return Actor{}, err
 	}
 	if requester.Binding != a.Requester ||
 		protocol.Verify(a.Requester.Account, requester.Signing, manifestPurpose, m, signed.Signature) != nil {
-		return ErrInvalid
+		return Actor{}, ErrInvalid
 	}
-	return nil
+	return requester, nil
 }
 
 func approverBinding(m manifest, account string) (Binding, bool) {

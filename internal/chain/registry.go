@@ -43,21 +43,26 @@ const (
 )
 
 func (e *EVM) registryBlock(ctx context.Context, registry Registry) (common.Hash, error) {
+	block, err := e.verifiedRegistryBlock(ctx, registry)
+	return block.Hash, err
+}
+
+func (e *EVM) verifiedRegistryBlock(ctx context.Context, registry Registry) (evmBlock, error) {
 	if registry.Address == (common.Address{}) || registry.CodeHash == (common.Hash{}) {
-		return common.Hash{}, errors.New("a pinned registry address and code hash are required")
+		return evmBlock{}, errors.New("a pinned registry address and code hash are required")
 	}
 	block, err := e.finalized(ctx)
 	if err != nil {
-		return common.Hash{}, err
+		return evmBlock{}, err
 	}
 	hash, err := e.codeHash(ctx, registry.Address, block.Hash)
 	if err != nil {
-		return common.Hash{}, err
+		return evmBlock{}, err
 	}
 	if hash != registry.CodeHash {
-		return common.Hash{}, errors.New("registry bytecode does not match the pinned hash")
+		return evmBlock{}, errors.New("registry bytecode does not match the pinned hash")
 	}
-	return block.Hash, nil
+	return block, nil
 }
 
 func (e *EVM) read(ctx context.Context, registry Registry, block common.Hash, method string, args ...any) ([]any, error) {
@@ -99,18 +104,57 @@ func (e *EVM) Revoked(ctx context.Context, registry Registry, doorID, session co
 	return e.readRevoked(ctx, registry, block, doorID, session)
 }
 
+type RevocationObservation struct {
+	Height   uint64
+	Block    common.Hash
+	Observed time.Time
+	Revoked  []common.Hash
+}
+
+// ObserveRevocations pins all reads to one verified finalized block. Positive
+// observations survive a later failed session read because revocation is final.
+func (e *EVM) ObserveRevocations(ctx context.Context, registry Registry, doorID common.Hash, sessions []common.Hash) (RevocationObservation, error) {
+	block, err := e.verifiedRegistryBlock(ctx, registry)
+	if err != nil {
+		return RevocationObservation{}, err
+	}
+	result := RevocationObservation{Height: uint64(block.Number), Block: block.Hash, Observed: time.Now()}
+	for _, session := range sessions {
+		revoked, err := e.readRevoked(ctx, registry, block.Hash, doorID, session)
+		if err != nil {
+			return result, err
+		}
+		if revoked {
+			result.Revoked = append(result.Revoked, session)
+		}
+	}
+	return result, nil
+}
+
 // CanAdmit observes policy and revocation at the same finalized block.
 func (e *EVM) CanAdmit(ctx context.Context, registry Registry, doorID, session common.Hash, version uint64, commitment common.Hash) (bool, error) {
-	block, err := e.registryBlock(ctx, registry)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	block, err := e.verifiedRegistryBlock(ctx, registry)
 	if err != nil {
 		return false, err
 	}
-	state, err := e.readDoor(ctx, registry, block, doorID)
+	state, err := e.readDoor(ctx, registry, block.Hash, doorID)
 	if err != nil || state.Version != version || state.Policy.Commitment != commitment || !state.Policy.Enabled {
 		return false, err
 	}
-	revoked, err := e.readRevoked(ctx, registry, block, doorID, session)
-	return err == nil && !revoked, err
+	revoked, err := e.readRevoked(ctx, registry, block.Hash, doorID, session)
+	if err != nil {
+		return false, err
+	}
+	age := time.Since(time.Unix(int64(block.Time), 0))
+	if age < -5*time.Second || age > 30*time.Second {
+		return false, errors.New("Diana finalized block became stale during admission")
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return !revoked, nil
 }
 
 func (e *EVM) readRevoked(ctx context.Context, registry Registry, block, doorID, session common.Hash) (bool, error) {
@@ -229,6 +273,14 @@ func (e *EVM) Revoke(
 	}
 	if !authorized {
 		return errors.New("the current Door policy does not allow this account to revoke")
+	}
+	already, err := e.readRevoked(ctx, registry, block, id, session)
+	if err != nil {
+		return err
+	}
+	if already {
+		report("Registry already records this revocation")
+		return nil
 	}
 	args := e.abi.Methods["revoke"].Inputs
 	data, err := (abi.Arguments{args[2], args[1]}).Pack(current.Version, session)

@@ -137,6 +137,24 @@ contract KnockRegistryTest {
         require(!registry.revoked(DOOR_ID, session));
     }
 
+    function testFuzzRevocationIsBoundToOneSession(bytes32 seed) external {
+        register(OWNER);
+        bytes32 session = bytes32(uint256(seed) | 1);
+        bytes32 other = session ^ bytes32(uint256(2));
+        bytes32 details = keccak256(abi.encode(uint64(1), session));
+        bytes memory signature = sign(registry.REVOKE(), APPROVER, details, 0, DEADLINE);
+
+        VM.expectRevert(KnockRegistry.InvalidSignature.selector);
+        registry.revoke(DOOR_ID, other, 1, APPROVER, 0, DEADLINE, signature);
+        require(!registry.revoked(DOOR_ID, other) && registry.nonces(APPROVER) == 0);
+
+        registry.revoke(DOOR_ID, session, 1, APPROVER, 0, DEADLINE, signature);
+        require(registry.revoked(DOOR_ID, session) && !registry.revoked(DOOR_ID, other));
+        VM.expectRevert(KnockRegistry.AlreadyRevoked.selector);
+        registry.revoke(DOOR_ID, session, 1, APPROVER, 0, DEADLINE, signature);
+        require(registry.nonces(APPROVER) == 1);
+    }
+
     function register(address owner) private {
         KnockRegistry.ApprovalPolicy memory initial = policy(keccak256("initial"));
         bytes32 details = keccak256(abi.encode(owner, DOOR, uint64(1), initial));

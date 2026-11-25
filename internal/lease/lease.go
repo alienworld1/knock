@@ -6,17 +6,32 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/netip"
+	"strconv"
 	"time"
 
 	"golang.org/x/crypto/ssh"
 )
 
 const (
-	ServerIP = "198.19.0.1"
-	ClientIP = "198.19.0.2"
-	SSHPort  = 2222
-	User     = "knockssh"
+	ServerIP      = "198.19.0.1"
+	ClientIP      = "198.19.0.2"
+	SSHPort       = 2222
+	User          = "knockssh"
+	slotCount     = 8
+	clientNetwork = "198.19.0.0/28"
 )
+
+type slot uint8
+
+func (s slot) valid() bool      { return s < slotCount }
+func (s slot) clientIP() string { return "198.19.0." + strconv.Itoa(2+int(s)) }
+func (s slot) port() int        { return SSHPort + int(s) }
+func (s slot) user() string {
+	if s == 0 {
+		return User
+	}
+	return User + strconv.Itoa(int(s))
+}
 
 type Connection struct {
 	Endpoint    string
@@ -24,13 +39,14 @@ type Connection struct {
 	PSK         [32]byte
 	HostKey     []byte
 	Certificate []byte
+	Slot        uint8 `cbor:",omitempty"`
 }
 
 func ValidateEndpoint(value string) (netip.AddrPort, error) {
 	endpoint, err := netip.ParseAddrPort(value)
 	if err != nil || endpoint.String() != value || endpoint.Addr().Zone() != "" ||
 		!endpoint.Addr().IsGlobalUnicast() || endpoint.Port() < 1024 ||
-		endpoint.Addr() == netip.MustParseAddr(ServerIP) || endpoint.Addr() == netip.MustParseAddr(ClientIP) {
+		netip.MustParsePrefix(clientNetwork).Contains(endpoint.Addr().Unmap()) {
 		return netip.AddrPort{}, errors.New("set a WireGuard endpoint with a numeric address and UDP port above 1023")
 	}
 	return endpoint, nil
@@ -43,6 +59,7 @@ type Grant struct {
 	WireGuard [32]byte
 	SSH       [32]byte
 	Recheck   func(context.Context) error
+	Confirm   func() error
 }
 
 func validID(id string) bool {
@@ -53,6 +70,10 @@ func validID(id string) bool {
 func principal(id string) string { return "knock-" + id }
 
 func (c Connection) Validate(g Grant) error {
+	assigned := slot(c.Slot)
+	if !assigned.valid() {
+		return errors.New("invalid SSH slot")
+	}
 	if _, err := ValidateEndpoint(c.Endpoint); err != nil {
 		return err
 	}
@@ -69,7 +90,7 @@ func (c Connection) Validate(g Grant) error {
 	if !ok || keyErr != nil || cert.CertType != ssh.UserCert || cert.KeyId != principal(g.ID) ||
 		len(cert.ValidPrincipals) != 1 || cert.ValidPrincipals[0] != principal(g.ID) ||
 		string(cert.Key.Marshal()) != string(key.Marshal()) || cert.ValidBefore != uint64(g.Deadline.Unix()) ||
-		cert.ValidAfter >= cert.ValidBefore || cert.CriticalOptions["source-address"] != ClientIP+"/32" {
+		cert.ValidAfter >= cert.ValidBefore || cert.CriticalOptions["source-address"] != assigned.clientIP()+"/32" {
 		return errors.New("SSH certificate differs from the approved session")
 	}
 	return nil

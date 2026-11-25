@@ -110,14 +110,14 @@ func TestLeaseReservationPersistsAndCannotReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := leaseRecord{ID: session, Issued: now.Unix(), Deadline: now.Add(2 * time.Minute).Unix(), State: lease.Reserved}
-	if accepted, err := j.decide(request, digest, decision, Authorized, nil, &record); err != nil || !accepted {
+	if accepted, err := j.decide(request, digest, decision, Authorized, nil, &record, nil); err != nil || !accepted {
 		t.Fatalf("reservation failed: %v", err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 	j, _ = journalAt(t, path)
-	if accepted, err := j.decide(request, digest, decision, Authorized, nil, &record); err != nil || accepted {
+	if accepted, err := j.decide(request, digest, decision, Authorized, nil, &record, nil); err != nil || accepted {
 		t.Fatalf("duplicate decision was actionable: %v", err)
 	}
 	item, err := j.get(request)
@@ -127,10 +127,41 @@ func TestLeaseReservationPersistsAndCannotReopen(t *testing.T) {
 	if err := j.updateLease(request, lease.Provisioning, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := j.observeLease(session, lease.Closed); err != nil {
+	if _, err := (Host{Journal: j}).recordHostState(request, lease.Observation{State: lease.Closed}); err != nil {
 		t.Fatal(err)
 	}
 	if err := j.updateLease(request, lease.Ready, nil); err == nil {
 		t.Fatal("closed grant became ready again")
+	}
+}
+
+func TestExpiredAndDeniedRequestsSurviveClockJump(t *testing.T) {
+	j, _ := journalAt(t, filepath.Join(t.TempDir(), "private", "db"))
+	now := time.Now()
+	denied, pending, digest := common.Hash{1}, common.Hash{2}, common.Hash{3}
+	message := mailbox.Message{Expires: now.Add(time.Minute).Unix()}
+	for _, id := range []common.Hash{denied, pending} {
+		if err := j.accept(id, digest, message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if accepted, err := j.decide(denied, digest, common.Hash{4}, Denied, nil, nil, nil); err != nil || !accepted {
+		t.Fatalf("denial was not saved: %v", err)
+	}
+	if err := j.expire(now.Add(2 * time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	// The clocks are back inside the original redemption window.
+	for id, outcome := range map[common.Hash]Outcome{denied: Denied, pending: Expired} {
+		if err := j.accept(id, digest, message); err != nil {
+			t.Fatal(err)
+		}
+		item, err := j.get(id)
+		if err != nil || item.Outcome != outcome || item.Delivery != nil {
+			t.Fatalf("terminal request reopened after a wall-clock jump: %v", err)
+		}
+		if accepted, err := j.decide(id, digest, common.Hash{5}, Authorized, nil, nil, nil); !errors.Is(err, ErrInvalid) || accepted {
+			t.Fatalf("terminal request admitted after a wall-clock jump: %v", err)
+		}
 	}
 }

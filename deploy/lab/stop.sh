@@ -25,7 +25,7 @@ def read_prompt(connection):
 
 lab = Path(sys.argv[1])
 stopping = []
-for role in ("door", "requester", "outsider"):
+for role in ("door", "requester", "outsider", "requester2"):
     guest = lab / role
     monitor = guest / "monitor.sock"
     if not monitor.is_socket():

@@ -1,16 +1,19 @@
 package admission
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"knock/internal/chain"
 	"knock/internal/door"
 	"knock/internal/identity"
+	"knock/internal/protocol"
 
 	qoreseal "github.com/qorechain/qoreseal/go"
 )
@@ -108,6 +111,12 @@ func TestDianaPrivateAdmission(t *testing.T) {
 		t.Fatalf("outsider opened the registered approver delivery: %v", err)
 	}
 	start := time.Now()
+	tampered := messages[0]
+	tampered.Body = bytes.Clone(tampered.Body)
+	tampered.Body[len(tampered.Body)-1] ^= 1
+	if err := host.Receive(ctx, tampered); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("tampered Diana delivery was accepted: %v", err)
+	}
 	if err := host.Receive(ctx, messages[0]); err != nil {
 		t.Fatalf("Door request: %v", err)
 	}
@@ -121,13 +130,36 @@ func TestDianaPrivateAdmission(t *testing.T) {
 		t.Fatalf("signed decision: %v", err)
 	}
 	start = time.Now()
-	if err := host.Receive(ctx, pass); err != nil {
-		t.Fatalf("verified Entry Pass and finalized revocation: %v", err)
+	var concurrent sync.WaitGroup
+	for range 2 {
+		concurrent.Go(func() {
+			if err := host.Receive(ctx, pass); err != nil {
+				t.Errorf("duplicate delivery did not reconcile idempotently: %v", err)
+			}
+		})
 	}
-	t.Logf("verified Diana admission in %s", time.Since(start).Round(time.Millisecond))
+	concurrent.Wait()
+	t.Logf("reconciled concurrent Diana admission in %s", time.Since(start).Round(time.Millisecond))
 	entry, err := journal.get(r.ID())
 	if err != nil || entry.Outcome != Authorized || entry.Notice == nil {
 		t.Fatalf("journal outcome: %v", err)
+	}
+	var signed signedDecision
+	if err := open(pass.Body, pass.ID, decisionPurpose, hostKeys.Recipient, 1, &signed); err != nil {
+		t.Fatal(err)
+	}
+	signed.Record.Authorization.Seconds++
+	signed.Signature, err = protocol.Sign(approver, decisionPurpose, signed.Record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	modified := pass
+	modified.Body, err = seal(signed, pass.ID, decisionPurpose, doorActor.Recipient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := host.Receive(ctx, modified); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("accepted a modified signed decision: %v", err)
 	}
 	outcome, err := r.ReadStatus(ctx, authority, *entry.Notice)
 	if err != nil || outcome != Authorized {

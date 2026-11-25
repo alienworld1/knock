@@ -25,6 +25,7 @@ type Host struct {
 	SSH       *lease.Host
 	Progress  func(string)
 	publish   func(context.Context, mailbox.Message) error
+	lookup    func(context.Context, string) (qoreseal.RecipientCard, error)
 }
 
 func (h Host) Receive(ctx context.Context, message mailbox.Message) error {
@@ -85,7 +86,7 @@ func (h Host) verifyRequest(ctx context.Context, message mailbox.Message, wrappe
 	if err != nil || actor != localBinding(h.Keys) {
 		return body, common.Hash{}, ErrInvalid
 	}
-	if err := verifyManifest(ctx, h.Authority, card, actor, a, wrapper.Manifest); err != nil {
+	if _, err := verifyManifest(ctx, h.Authority, card, actor, a, wrapper.Manifest); err != nil {
 		return body, common.Hash{}, err
 	}
 	digest, err := protocol.Digest(wrapper.Manifest)
@@ -178,18 +179,22 @@ func (h Host) decide(ctx context.Context, signed signedDecision) error {
 		}
 		return nil
 	}
-	verify := func(ctx context.Context, fresh bool) error {
+	verify := func(ctx context.Context, fresh bool) (Actor, Actor, error) {
+		var requester, reviewer Actor
 		group, call := errgroup.WithContext(ctx)
 		group.Go(func() error {
-			return verifyManifest(call, h.Authority, card, currentDoor, a, wrapper.Manifest)
+			var err error
+			requester, err = verifyManifest(call, h.Authority, card, currentDoor, a, wrapper.Manifest)
+			return err
 		})
 		group.Go(func() error {
-			approver, err := h.Authority.Actor(call, card.Details, d.Approver.Account, d.ApproverCard)
+			var err error
+			reviewer, err = h.Authority.Actor(call, card.Details, d.Approver.Account, d.ApproverCard)
 			if err != nil {
 				return err
 			}
-			if approver.Binding != d.Approver ||
-				protocol.Verify(d.Approver.Account, approver.Signing, decisionPurpose, d, signed.Signature) != nil {
+			if reviewer.Binding != d.Approver ||
+				protocol.Verify(d.Approver.Account, reviewer.Signing, decisionPurpose, d, signed.Signature) != nil {
 				return ErrInvalid
 			}
 			return nil
@@ -211,29 +216,49 @@ func (h Host) decide(ctx context.Context, signed signedDecision) error {
 			})
 		}
 		if err := group.Wait(); err != nil {
-			return err
+			return Actor{}, Actor{}, err
 		}
 		if d.Outcome == Authorized {
-			return checkPolicy(ctx)
+			return requester, reviewer, checkPolicy(ctx)
 		}
-		return nil
+		return requester, reviewer, nil
 	}
-	if err := verify(ctx, false); err != nil {
+	requester, reviewer, err := verify(ctx, false)
+	if err != nil {
 		return err
 	}
 	if d.Outcome == Authorized && h.SSH != nil {
 		if h.publish == nil {
 			return errors.New("the Door cannot publish a private connection response")
 		}
-		return h.provision(ctx, body, manifestHash, digest, session, func(ctx context.Context) error {
-			return verify(ctx, true)
+		recipients := []sessionRecipient{
+			{requester.Binding.Account, requester.Recipient},
+			{reviewer.Binding.Account, reviewer.Recipient},
+		}
+		owner := card.Details.Owner
+		if h.lookup != nil && owner != requester.Binding.Account && owner != reviewer.Binding.Account {
+			call, cancel := context.WithTimeout(ctx, 4*time.Second)
+			if recipient, err := h.lookup(call, owner); err == nil {
+				if actor, err := h.Authority.Actor(call, card.Details, owner, recipient); err == nil {
+					recipients = append(recipients, sessionRecipient{actor.Binding.Account, actor.Recipient})
+				}
+			}
+			cancel()
+		}
+		targets, err := h.sealSessionRecipients(session, a, recipients)
+		if err != nil {
+			return err
+		}
+		return h.provision(ctx, body, manifestHash, digest, session, targets, func(ctx context.Context) error {
+			_, _, err := verify(ctx, true)
+			return err
 		}, checkPolicy)
 	}
 	notice, err := h.notice(a, body, d.Outcome, manifestHash, digest, session, nil)
 	if err != nil {
 		return err
 	}
-	_, err = h.Journal.decide(a.RequestID, manifestHash, digest, d.Outcome, &notice, nil)
+	_, err = h.Journal.decide(a.RequestID, manifestHash, digest, d.Outcome, &notice, nil, nil)
 	return err
 }
 
@@ -266,7 +291,7 @@ func (h Host) notice(a authorization, body doorPayload, outcome Outcome, manifes
 }
 
 func (h Host) Poll(ctx context.Context, relay *mailbox.Client) error {
-	h.publish = relay.Send
+	h.publish, h.lookup = relay.Send, relay.Card
 	if err := h.Journal.expire(time.Now().Unix()); err != nil {
 		return err
 	}
@@ -305,6 +330,9 @@ func (h Host) Poll(ctx context.Context, relay *mailbox.Client) error {
 		if err := h.Journal.delivered(queued.request, queued.message.ID); err != nil {
 			return err
 		}
+	}
+	if err := h.deliverSessionStatus(ctx, relay); err != nil {
+		deferred = err
 	}
 	return deferred
 }

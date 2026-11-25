@@ -1,7 +1,6 @@
 package admission
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"time"
@@ -27,6 +26,7 @@ type entry struct {
 	Delivery *mailbox.Message
 	Notice   *mailbox.Message
 	Lease    *leaseRecord
+	Evidence *leaseEvidence
 }
 
 func NewJournal(db *bolt.DB) (*Journal, error) {
@@ -95,7 +95,7 @@ type leaseRecord struct {
 }
 
 // decide durably consumes authorization before the host can touch resources.
-func (j *Journal) decide(id, manifest, decision common.Hash, outcome Outcome, notice *mailbox.Message, session *leaseRecord) (bool, error) {
+func (j *Journal) decide(id, manifest, decision common.Hash, outcome Outcome, notice *mailbox.Message, session *leaseRecord, targets []byte) (bool, error) {
 	var accepted bool
 	err := j.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(journalName)
@@ -116,6 +116,9 @@ func (j *Journal) decide(id, manifest, decision common.Hash, outcome Outcome, no
 			return ErrExpired
 		}
 		item.Outcome, item.Decision, item.Delivery, item.Notice, item.Lease = outcome, decision, nil, notice, session
+		if len(targets) != 0 && session != nil {
+			item.Evidence = &leaseEvidence{Targets: targets, Revision: 1, Changed: session.Issued}
+		}
 		accepted = true
 		return writeEntry(b, id, item)
 	})
@@ -123,7 +126,64 @@ func (j *Journal) decide(id, manifest, decision common.Hash, outcome Outcome, no
 }
 
 func (j *Journal) updateLease(id common.Hash, state lease.State, notice *mailbox.Message) error {
-	return j.db.Update(func(tx *bolt.Tx) error {
+	_, err := j.editLease(id, func(item *entry) (bool, error) {
+		changed := item.advance(state, time.Now().Unix())
+		if !changed && (state == lease.Provisioning || state == lease.Ready) {
+			return false, errors.New("the SSH session is no longer available for provisioning")
+		}
+		if notice != nil {
+			item.Notice = notice
+			changed = true
+		}
+		return changed, nil
+	})
+	return err
+}
+
+func (item *entry) advance(next lease.State, now int64) bool {
+	current := item.Lease.State
+	if current == next || current == lease.Closed {
+		return false
+	}
+	switch next {
+	case lease.Provisioning:
+		if current != lease.Reserved {
+			return false
+		}
+	case lease.Ready:
+		if current != lease.Provisioning {
+			return false
+		}
+	case lease.Active:
+		if current != lease.Ready {
+			return false
+		}
+	case lease.Closing:
+		if current == lease.CleanupIncomplete {
+			return false
+		}
+	case lease.Closed, lease.CleanupIncomplete:
+	default:
+		return false
+	}
+	item.Lease.State = next
+	if next == lease.Closing || next == lease.Closed || next == lease.CleanupIncomplete {
+		if item.Notice != nil && item.Notice.ID == connectionID(item.Lease.ID) {
+			item.Notice = nil
+		}
+	}
+	if evidence := item.Evidence; evidence != nil {
+		if next == lease.Closed {
+			evidence.ClosedAt = now
+		}
+		evidence.touch(now)
+	}
+	return true
+}
+
+func (j *Journal) editLease(id common.Hash, edit func(*entry) (bool, error)) (bool, error) {
+	var changed bool
+	err := j.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(journalName)
 		item, err := loadEntry(b, id)
 		if err != nil {
@@ -132,71 +192,49 @@ func (j *Journal) updateLease(id common.Hash, state lease.State, notice *mailbox
 		if item.Lease == nil {
 			return ErrInvalid
 		}
-		if (state == lease.Provisioning && item.Lease.State != lease.Reserved) ||
-			(state == lease.Ready && item.Lease.State != lease.Provisioning) {
-			return errors.New("the SSH session is no longer available for provisioning")
-		}
-		if item.Lease.State != lease.Closed {
-			item.Lease.State = state
-		}
-		item.Notice = notice
-		return writeEntry(b, id, item)
-	})
-}
-
-func (j *Journal) observeLease(session common.Hash, state lease.State) (bool, error) {
-	var changed bool
-	err := j.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(journalName)
-		var id common.Hash
-		var item entry
-		if err := b.ForEach(func(key, raw []byte) error {
-			if id != (common.Hash{}) {
-				return nil
-			}
-			var candidate entry
-			if err := json.Unmarshal(raw, &candidate); err != nil {
-				return err
-			}
-			if candidate.Lease != nil && candidate.Lease.ID == session {
-				id, item = common.Hash(key), candidate
-			}
-			return nil
-		}); err != nil {
+		changed, err = edit(&item)
+		if err != nil || !changed {
 			return err
 		}
-		if id == (common.Hash{}) || item.Lease.State == state || item.Lease.State == lease.Closed {
-			return nil
-		}
-		if state == lease.Active && item.Lease.State != lease.Ready {
-			return nil
-		}
-		item.Lease.State = state
-		if (state == lease.Closed || state == lease.CleanupIncomplete) &&
-			item.Notice != nil && item.Notice.ID == connectionID(session) {
-			item.Notice = nil
-		}
-		changed = true
 		return writeEntry(b, id, item)
 	})
 	return changed, err
+}
+
+type journalSession struct {
+	Request  common.Hash
+	Record   leaseRecord
+	Evidence *leaseEvidence
+}
+
+func (j *Journal) sessions() ([]journalSession, error) {
+	var sessions []journalSession
+	err := j.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket(journalName).ForEach(func(key, raw []byte) error {
+			var item entry
+			if err := json.Unmarshal(raw, &item); err != nil {
+				return err
+			}
+			if item.Lease != nil {
+				sessions = append(sessions, journalSession{common.Hash(key), *item.Lease, item.Evidence})
+			}
+			return nil
+		})
+	})
+	return sessions, err
 }
 
 func (j *Journal) expire(now int64) error {
 	return j.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(journalName)
 		c := b.Cursor()
-		var remove [][]byte
 		updates := make(map[common.Hash]entry)
 		for key, raw := c.First(); key != nil; key, raw = c.Next() {
 			var item entry
 			if err := json.Unmarshal(raw, &item); err != nil {
 				return err
 			}
-			if item.Lease == nil && now >= item.Deadline+int64(time.Hour/time.Second) {
-				remove = append(remove, bytes.Clone(key))
-				continue
-			}
+			// Preserve the terminal tombstone across wall-clock corrections.
 			if item.Deadline <= now && item.Outcome == Pending {
 				item.Outcome, item.Delivery = Expired, nil
 				updates[common.Hash(key)] = item
@@ -204,11 +242,6 @@ func (j *Journal) expire(now int64) error {
 			if item.Notice != nil && item.Notice.Expires <= now {
 				item.Notice = nil
 				updates[common.Hash(key)] = item
-			}
-		}
-		for _, key := range remove {
-			if err := b.Delete(key); err != nil {
-				return err
 			}
 		}
 		for id, item := range updates {

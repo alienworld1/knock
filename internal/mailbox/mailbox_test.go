@@ -287,3 +287,39 @@ func TestMailboxQueueAndPageBounds(t *testing.T) {
 		t.Fatalf("expired messages remained visible: %v", err)
 	}
 }
+
+func TestMailboxAllowsBoundedConcurrentDoorStatusTraffic(t *testing.T) {
+	sender := testIdentity(t, 30)
+	destinations := []*identity.Keys{testIdentity(t, 31), testIdentity(t, 32), testIdentity(t, 33)}
+	db, err := protocol.OpenState(filepath.Join(t.TempDir(), "private", "db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	server, err := NewServer(db, testRegistry{sender.Account.Bech32: sender.Signing.PublicKey}, origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewClient(origin, sender)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.http.Transport = transport(server)
+	body, err := qoreseal.Seal(qoreseal.SealArgs{
+		ChainID: chain.NativeID, Purpose: "knock-mailbox-test", Anonymous: true,
+		Recipients: []qoreseal.SealRecipient{qoreseal.RecipientOf(destinations[0].Recipient)}, Plaintext: []byte("opaque status fixture"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 144; i++ {
+		message := Message{destinations[i%len(destinations)].Account.Bech32, common.Hash{byte(i)}, time.Now().Add(25 * time.Second).Unix(), body}
+		if err := client.Send(t.Context(), message); err != nil {
+			t.Fatalf("normal session updates hit the sender quota at delivery %d: %v", i, err)
+		}
+	}
+	closed := Message{destinations[0].Account.Bech32, common.Hash{145}, time.Now().Add(Retention - time.Second).Unix(), body}
+	if err := client.Send(t.Context(), closed); err != nil {
+		t.Fatalf("concurrent session updates prevented a closure delivery: %v", err)
+	}
+}

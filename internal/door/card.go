@@ -197,17 +197,8 @@ func (c Card) Verify(ctx context.Context, n *chain.Native, e *chain.EVM, registr
 	if err != nil {
 		return err
 	}
-	if sha256.Sum256(signing) != d.SigningKey || c.Signature.Classical.KeyType != qoresign.EthSecp256k1 {
-		return errors.New("Door Card signing key does not match the current identity")
-	}
-	data, err := d.signBytes()
-	if err != nil {
+	if err := c.VerifySigner(signing); err != nil {
 		return err
-	}
-	if err := qoresign.VerifyMessage(qoresign.VerifyMessageOptions{
-		ChainID: chain.NativeID, Signer: d.Account, Data: data, Signature: c.Signature, PqPublicKey: signing,
-	}); err != nil {
-		return errors.New("Door Card signature could not be verified")
 	}
 	recipient, err := n.Recipient(ctx, d.Recipient, d.Account)
 	if err != nil {
@@ -232,6 +223,24 @@ func (c Card) Verify(ctx context.Context, n *chain.Native, e *chain.EVM, registr
 		return err
 	}
 	return e.Binding(ctx, ownerAccount, ownerKey, block)
+}
+
+// VerifySigner checks the signed Card against an already trusted signing key.
+func (c Card) VerifySigner(signing []byte) error {
+	d := c.Details
+	if sha256.Sum256(signing) != d.SigningKey || c.Signature.Classical.KeyType != qoresign.EthSecp256k1 {
+		return errors.New("Door Card signing key does not match the current identity")
+	}
+	data, err := d.signBytes()
+	if err != nil {
+		return err
+	}
+	if err := qoresign.VerifyMessage(qoresign.VerifyMessageOptions{
+		ChainID: chain.NativeID, Signer: d.Account, Data: data, Signature: c.Signature, PqPublicKey: signing,
+	}); err != nil {
+		return errors.New("Door Card signature could not be verified")
+	}
+	return nil
 }
 
 func matchesPolicy(left, right chain.Policy) bool {

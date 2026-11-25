@@ -1,6 +1,6 @@
 # Knock
 
-Knock grants short-lived, restricted SSH access to verified QoreChain Diana identities. An approver reviews the encrypted request. After approval, the Door opens a private connection and ends it at the fixed deadline.
+Knock grants short-lived, restricted SSH access to verified QoreChain Diana identities. An approver reviews the encrypted request. After approval, the Door opens a private connection and ends it at the fixed deadline or when it observes a finalized Diana revocation.
 
 ## Build
 
@@ -25,8 +25,6 @@ Give the requester the public Card and registry pin, and confirm the Door accoun
 bin/knock --network network.json --cards cards door trust qor1... --alias validator-ops
 bin/knock --network network.json --cards cards door show validator-ops
 ```
-
-An owner or eligible approver can record a revocation on Diana with `knock revoke --door validator-ops <session-id>`. Use `door show --revocation <session-id>` to read the finalized registry state. Live SSH access ends at the local deadline. Session references are opaque 32-byte hex values prefixed with `0x`.
 
 ## Request and review access
 
@@ -58,15 +56,28 @@ Use `deny` to decline. Keep the requester running while you review. After a gran
 
 Enter the reason with `--reason -` to keep it out of shell history. The Mailbox can see delivery accounts, timing, sizes, opaque message IDs, and expiry. Reasons are encrypted for approvers. Expired messages are pruned from the live queue. Old disk pages and backups may retain ciphertext.
 
+## Check or revoke a session
+
+Run these commands with your profile, registry and Card options. Copy the session ID from the list. Publish the owner's recipient card before granting access if the owner will check session status.
+
+```sh
+knock sessions list --door validator-ops
+knock revoke --door validator-ops "$session_id"
+knock sessions show --door validator-ops "$session_id"
+```
+
+The owner and eligible approvers can revoke. The Door checks Diana directly, even if the Mailbox goes offline. Wait for the Door's signed closure evidence to verify enforcement. During a Diana outage, the Door requires fresh verification for new grants and existing grants still expire locally. If status becomes stale, Knock shows the last verified observation. When cleanup is incomplete, the Door retains its ownership record and retries.
+
 ## Run an SSH Door
 
-Use a dedicated, always-on Ubuntu 24.04 VM with cgroup v2, WireGuard, nftables, and OpenSSH. Keep time synchronized and disable suspend. Keep management SSH on a separate network. Knock reserves the `knockdoor` interface, the `knock_ssh` nftables table, and private addresses `198.19.0.1` and `198.19.0.2`. This setup serves one SSH session at a time.
+Use a dedicated, always-on Ubuntu 24.04 VM with cgroup v2, WireGuard, nftables, and OpenSSH. Keep time synchronized and disable suspend. Keep management SSH on a separate network. Knock reserves the `knockdoor` interface, the `knock_ssh` nftables table, `198.19.0.0/28`, and SSH ports 2222–2229 on `198.19.0.1`. Each concurrent session needs its own local account. The setup below creates two slots. For up to eight, add `knockssh2` through `knockssh7` with the same restrictions.
 
 Set `wireGuardEndpoint` in the private Door configuration to a numeric address and UDP port reachable by the requester, for example `198.18.0.1:48001` in the lab. Permit that UDP port on the Door's external interface. Leave the private SSH listener behind Knock's firewall. Install the files under `/etc/knock` with root ownership and the Door profile at mode `0600`. Keep the owner profile on the operator machine.
 
 ```sh
 sudo install -m 0755 bin/knockd /usr/local/bin/knockd
 sudo useradd --system --no-create-home --home-dir / --shell /bin/sh --password NP knockssh
+sudo useradd --system --no-create-home --home-dir / --shell /bin/sh --password NP knockssh1
 sudo install -d -m 0755 /run/sshd /etc/systemd/system/knockd.service.d
 systemd-ask-password 'Door passphrase' |
   sudo systemd-creds encrypt --name=door-passphrase --with-key=host - /etc/knock/door.cred
@@ -78,7 +89,7 @@ sudo systemctl start knockd
 
 On the requester VM, install `bin/knock` at `/usr/local/bin/knock` as root, plus WireGuard tools and OpenSSH. In a regular Linux login session, grant the requester's local group the two tunnel commands in [the sudoers example](deploy/knock-tunnel.sudoers). Install it with `sudo visudo -f /etc/sudoers.d/knock-tunnel`. The SSH client runs as the requester.
 
-The requester holds its one-time keys in memory and uses private tmpfs files for OpenSSH. Knock removes these files and its temporary tunnel on normal exit. Key disposal is best-effort.
+The requester holds its one-time keys in memory and uses private tmpfs files for OpenSSH. Knock removes these files and the temporary tunnel on exit and cleans up leftovers before the next SSH connection. Key disposal is best-effort. The Door verifies cleanup of outstanding sessions on restart. With the Door stopped, run `sudo knockd reconcile --config /etc/knock/door.json` to retry host cleanup manually.
 
 The host credential key and the encrypted credential require storage protection against full disk access. Registry and key verification use trusted Diana endpoints. QoreSeal is a draft pending external review. [QoreSeal documentation](https://docs.qorechain.io/developer-tools/qoreseal/)
 
@@ -92,8 +103,8 @@ deploy/lab/probe.sh /tmp/knock-lab
 deploy/lab/stop.sh /tmp/knock-lab
 ```
 
-The probe uses separate Door, requester, and outsider guests to check the closed service, WireGuard, SSH certificate restrictions, timed nftables membership, and systemd cgroup cleanup. Use a new lab directory for a clean run.
+The lab includes two requester guests and a separate outsider. The probe uses the Door, first requester, and outsider to check the closed service, WireGuard, SSH certificate restrictions, timed nftables membership, and systemd cgroup cleanup. Use a new lab directory for a clean run.
 
-Verified on Diana with registry `0x1c334C21920CD88fB9E372Acd78a1772D2A32a78`. [Deployment](https://explore.qore.network/tx/0x0719fc5668e0c2772d800a322df5ec96a51dc323627c6ccbd8a48f89207b53cb), [Door registration](https://explore.qore.network/tx/0x2766c0a4e8111703bb8f8927b8fd51fac87ca8e55099a22caa1b751ca8dbf97d), [policy update](https://explore.qore.network/tx/0xdfa0f058aaa11a72cead637c982b84600d8a940b593b2494ffa8aba8f5e96a85), [revocation](https://explore.qore.network/tx/0x3d44b99f2e731a7f54192d92c375e54fd195ac70fd7c1735ae2a18cb061b7eea).
+Verified on Diana with registry `0x1c334C21920CD88fB9E372Acd78a1772D2A32a78`. [Deployment](https://explore.qore.network/tx/0x0719fc5668e0c2772d800a322df5ec96a51dc323627c6ccbd8a48f89207b53cb), [Door registration](https://explore.qore.network/tx/0x2766c0a4e8111703bb8f8927b8fd51fac87ca8e55099a22caa1b751ca8dbf97d), [policy update](https://explore.qore.network/tx/0xdfa0f058aaa11a72cead637c982b84600d8a940b593b2494ffa8aba8f5e96a85), [Live SSH revocation](https://explore.qore.network/tx/0x5eab80cb03111cbe8bf9322ba39ee4ecc675326bb73fc01e3b67b3631a13f965). In the lab, the revoked connection ended about 25 seconds after the command started while the Mailbox was offline.
 
 Apache-2.0.

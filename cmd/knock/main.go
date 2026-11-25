@@ -39,7 +39,7 @@ func root() *cobra.Command {
 	root.PersistentFlags().StringVar(&s.mailbox, "mailbox", "", "Mailbox origin for operator commands")
 	s.requestFlags(root)
 	root.AddCommand(tunnelCommand("up"), tunnelCommand("down"))
-	root.AddCommand(s.identityCommands(), s.doorCommands(), s.revokeCommand(), s.requestsCommand(),
+	root.AddCommand(s.identityCommands(), s.doorCommands(), s.revokeCommand(), s.sessionsCommand(), s.requestsCommand(),
 		s.decisionCommand("approve", admission.Authorized), s.decisionCommand("deny", admission.Denied))
 	return root
 }
@@ -170,10 +170,14 @@ func (s *settings) revokeCommand() *cobra.Command {
 		Use: "revoke <session-id>", Short: "Revoke a session reference on Diana", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var session common.Hash
-			if target == "" || session.UnmarshalText([]byte(args[0])) != nil || session == (common.Hash{}) {
-				return command.Exit(2, errors.New("set --door and a nonzero 32-byte session reference in hex"))
+			if session.UnmarshalText([]byte(args[0])) != nil || session == (common.Hash{}) {
+				return command.Exit(2, errors.New("set a nonzero 32-byte session reference in hex"))
 			}
-			return s.withDoor(cmd, target, func(ctx context.Context, evm *chain.EVM, card door.Card) error {
+			selected, err := s.sessionDoor(target)
+			if err != nil {
+				return command.Exit(2, err)
+			}
+			return s.withDoor(cmd, selected, func(ctx context.Context, evm *chain.EVM, card door.Card) error {
 				keys, err := command.Unlock(command.Profile(s.home, s.profile), "Identity passphrase")
 				if err != nil {
 					return command.Exit(8, err)
@@ -182,7 +186,7 @@ func (s *settings) revokeCommand() *cobra.Command {
 				if err := evm.Revoke(ctx, card.Details.Registry, card.Details.DoorID, session, keys, command.Progress); err != nil {
 					return command.Exit(3, err)
 				}
-				fmt.Fprintln(cmd.OutOrStdout(), "Registry revocation confirmed")
+				fmt.Fprintln(cmd.OutOrStdout(), "Registry revocation confirmed. Check session status for host enforcement.")
 				return nil
 			})
 		},
@@ -192,25 +196,9 @@ func (s *settings) revokeCommand() *cobra.Command {
 }
 
 func (s *settings) withDoor(cmd *cobra.Command, target string, use func(context.Context, *chain.EVM, door.Card) error) error {
-	pin, err := s.registry()
+	card, pin, _, err := s.localDoor(target)
 	if err != nil {
-		return command.Exit(2, err)
-	}
-	var alias *door.Alias
-	if !strings.HasPrefix(target, "qor1") {
-		record, err := door.ReadAlias(filepath.Join(s.home, "aliases"), target)
-		if err != nil {
-			return command.Exit(8, fmt.Errorf("read Door alias: %w", err))
-		}
-		target = record.Account
-		alias = &record
-	}
-	card, err := door.ReadCard(s.cardsDirectory(), target)
-	if err != nil {
-		return command.Exit(3, err)
-	}
-	if alias != nil && alias.SigningKey != common.Hash(card.Details.SigningKey) {
-		return command.Exit(3, errors.New("Door signing key changed. Verify the account before trusting a new alias."))
+		return err
 	}
 	ctx, cancel := context.WithTimeout(cmd.Context(), 120*time.Second)
 	defer cancel()
@@ -220,10 +208,38 @@ func (s *settings) withDoor(cmd *cobra.Command, target string, use func(context.
 		return command.Exit(3, err)
 	}
 	defer evm.Close()
-	if err := card.Verify(ctx, native, evm, pin, target); err != nil {
+	if err := card.Verify(ctx, native, evm, pin, card.Details.Account); err != nil {
 		return command.Exit(3, err)
 	}
 	return use(ctx, evm, card)
+}
+
+// localDoor reads the configured Card and checks the pin recorded by door trust.
+func (s *settings) localDoor(target string) (door.Card, chain.Registry, bool, error) {
+	pin, err := s.registry()
+	if err != nil {
+		return door.Card{}, chain.Registry{}, false, command.Exit(2, err)
+	}
+	var alias *door.Alias
+	if !strings.HasPrefix(target, "qor1") {
+		record, err := door.ReadAlias(filepath.Join(s.home, "aliases"), target)
+		if err != nil {
+			return door.Card{}, chain.Registry{}, false, command.Exit(8, fmt.Errorf("read Door alias: %w", err))
+		}
+		target = record.Account
+		alias = &record
+	}
+	card, err := door.ReadCard(s.cardsDirectory(), target)
+	if err != nil {
+		return door.Card{}, chain.Registry{}, false, command.Exit(3, err)
+	}
+	if alias != nil && alias.SigningKey != common.Hash(card.Details.SigningKey) {
+		return door.Card{}, chain.Registry{}, false, command.Exit(3, errors.New("Door signing key changed. Verify the account before trusting a new alias."))
+	}
+	if card.Details.Registry != pin || card.Details.Account != target {
+		return door.Card{}, chain.Registry{}, false, command.Exit(3, errors.New("Door Card does not match the configured account or registry"))
+	}
+	return card, pin, alias != nil, nil
 }
 
 func (s *settings) registry() (chain.Registry, error) {

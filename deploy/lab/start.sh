@@ -62,6 +62,9 @@ CONFIG
     IFS=, read -r number address mac <<< "$link"
     printf '  link%s:\n    match: {macaddress: "%s"}\n    set-name: knocklab%s\n    addresses: ["%s"]\n' \
       "$number" "$mac" "$number" "$address" >> "$guest/network-config"
+    if [[ $role == requester2 ]]; then
+      printf '    routes: [{to: 198.18.0.1/32, via: 198.18.0.9}]\n' >> "$guest/network-config"
+    fi
     local socket="$lab/link$number.sock"
     local server=off
     [[ $role != door ]] || server=on
@@ -71,7 +74,7 @@ CONFIG
   xorriso -as mkisofs -quiet -volid cidata -joliet -rock -output "$guest/seed.iso" \
     "$guest/meta-data" "$guest/user-data" "$guest/network-config"
   qemu-img create -q -f qcow2 -F qcow2 -b "$image" "$guest/disk.qcow2" 8G
-  qemu-system-x86_64 -accel kvm -cpu host -smp 2 -m 1024 -display none -no-reboot \
+  qemu-system-x86_64 -accel kvm -cpu host -smp 2 -m 1024 -display none \
     -name "knock-$role" -daemonize -pidfile "$guest/qemu.pid" \
     -serial "file:$guest/console.log" -monitor "unix:$guest/monitor.sock,server=on,wait=off" \
     -drive "file=$guest/disk.qcow2,if=virtio,format=qcow2" -drive "file=$guest/seed.iso,if=virtio,format=raw,readonly=on" \
@@ -79,7 +82,8 @@ CONFIG
     "${devices[@]}"
 }
 
-create_guest door 01 29221 1,198.18.0.1/30,52:54:00:4b:01:01 2,198.18.0.5/30,52:54:00:4b:02:01
+create_guest door 01 29221 1,198.18.0.1/30,52:54:00:4b:01:01 2,198.18.0.5/30,52:54:00:4b:02:01 3,198.18.0.9/30,52:54:00:4b:03:01
 create_guest requester 02 29222 1,198.18.0.2/30,52:54:00:4b:01:02
 create_guest outsider 03 29223 2,198.18.0.6/30,52:54:00:4b:02:02
+create_guest requester2 04 29224 3,198.18.0.10/30,52:54:00:4b:03:02
 printf 'Knock lab started in %s\n' "$lab"

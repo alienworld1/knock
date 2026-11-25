@@ -154,4 +154,26 @@ func TestDianaMutationGuards(t *testing.T) {
 		t.Fatalf("committed revocation missing: %v", err)
 	}
 	check(state.Owner, "revoke", "AlreadyRevoked", replay...)
+	other := ref
+	other[0] ^= 1
+	revocationDetails, err := (abi.Arguments{method.Inputs[2], method.Inputs[1]}).Pack(state.Version, other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitment := crypto.Keccak256Hash(revocationDetails)
+	revokeNonce, _, err := e.authorization(ctx, config.Registry, block, owner, revokeSession, config.DoorID, commitment, deadline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revocationBytes, err := e.authorizationBytes(config.Registry.Address, revokeSession, state.Owner, config.DoorID, commitment, revokeNonce, deadline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	classicalProof, err := qoresign.ClassicalSign(owner.Classical, revocationBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check(state.Owner, "revoke", "InvalidSignature", config.DoorID, other, state.Version, state.Owner, revokeNonce, deadline, classicalProof)
+	check(common.BytesToAddress(outsider.Account.Bytes), "revoke", "Unauthorized", config.DoorID, other, state.Version,
+		common.BytesToAddress(outsider.Account.Bytes), revokeNonce, deadline, wrong)
 }

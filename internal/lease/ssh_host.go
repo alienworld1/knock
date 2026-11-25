@@ -16,8 +16,8 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func (h *Host) makeCredentials(g Grant) (Connection, error) {
-	conn := Connection{Endpoint: h.endpoint.String(), ServerKey: h.key}
+func (h *Host) makeCredentials(g Grant, assigned slot) (Connection, error) {
+	conn := Connection{Endpoint: h.endpoint.String(), ServerKey: h.key, Slot: uint8(assigned)}
 	rand.Read(conn.PSK[:])
 	userKey, err := ssh.NewPublicKey(ed25519.PublicKey(g.SSH[:]))
 	if err != nil {
@@ -36,7 +36,7 @@ func (h *Host) makeCredentials(g Grant) (Connection, error) {
 		Key: userKey, CertType: ssh.UserCert, KeyId: principal(g.ID),
 		ValidPrincipals: []string{principal(g.ID)},
 		ValidAfter:      uint64(time.Now().Add(-5 * time.Second).Unix()), ValidBefore: uint64(g.Deadline.Unix()),
-		Permissions: ssh.Permissions{CriticalOptions: map[string]string{"source-address": ClientIP + "/32"}},
+		Permissions: ssh.Permissions{CriticalOptions: map[string]string{"source-address": assigned.clientIP() + "/32"}},
 	}
 	if err := certificate.SignCert(rand.Reader, ca); err != nil {
 		return conn, err
@@ -85,7 +85,7 @@ PubkeyAcceptedAlgorithms ssh-ed25519-cert-v01@openssh.com
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin no
-AllowUsers knockssh
+AllowUsers %s
 UsePAM no
 DisableForwarding yes
 PermitTunnel no
@@ -98,10 +98,10 @@ LogLevel INFO
 ForceCommand %s ssh-role %s %s
 `
 
-func startSSH(ctx context.Context, g Grant) error {
+func startSSH(ctx context.Context, g Grant, assigned slot) error {
 	dir := filepath.Join(private, g.ID)
 	config := filepath.Join(dir, "sshd_config")
-	content := fmt.Sprintf(sshdConfig, ServerIP, SSHPort, dir, dir, public, g.ID, daemonPath, g.Role, g.ID)
+	content := fmt.Sprintf(sshdConfig, ServerIP, assigned.port(), dir, dir, public, g.ID, assigned.user(), daemonPath, g.Role, g.ID)
 	if err := os.WriteFile(config, []byte(content), 0600); err != nil {
 		return err
 	}
@@ -111,11 +111,11 @@ func startSSH(ctx context.Context, g Grant) error {
 	}
 	lines := strings.Split(string(effective), "\n")
 	for _, setting := range []string{
-		"listenaddress " + fmt.Sprintf("%s:%d", ServerIP, SSHPort),
+		"listenaddress " + fmt.Sprintf("%s:%d", ServerIP, assigned.port()),
 		"authorizedprincipalsfile " + filepath.Join(public, g.ID),
 		"trustedusercakeys " + filepath.Join(dir, "ca.pub"),
 		"forcecommand " + daemonPath + " ssh-role " + g.Role + " " + g.ID,
-		"allowusers " + User, "usepam no", "disableforwarding yes", "permitrootlogin no",
+		"allowusers " + assigned.user(), "usepam no", "disableforwarding yes", "permitrootlogin no",
 		"authorizedkeysfile none", "authenticationmethods publickey", "permittty no", "permituserrc no",
 	} {
 		if !slices.Contains(lines, setting) {
@@ -137,7 +137,7 @@ func startSSH(ctx context.Context, g Grant) error {
 		return err
 	}
 	for range 20 {
-		listening, err := listener(ctx)
+		listening, err := listener(ctx, assigned)
 		if err != nil || listening {
 			return err
 		}
@@ -150,15 +150,15 @@ func startSSH(ctx context.Context, g Grant) error {
 	return errors.New("the protected SSH listener didn't start")
 }
 
-func listener(ctx context.Context) (bool, error) {
-	out, err := native(ctx, nil, "/usr/bin/ss", "-ltnH", "sport", "=", fmt.Sprint(SSHPort))
+func listener(ctx context.Context, assigned slot) (bool, error) {
+	out, err := native(ctx, nil, "/usr/bin/ss", "-ltnH", "sport", "=", fmt.Sprint(assigned.port()))
 	if err != nil {
 		return false, err
 	}
-	return slices.Contains(strings.Fields(string(out)), fmt.Sprintf("%s:%d", ServerIP, SSHPort)), nil
+	return slices.Contains(strings.Fields(string(out)), fmt.Sprintf("%s:%d", ServerIP, assigned.port())), nil
 }
 
-func stopSSH(ctx context.Context, id string) error {
+func stopSSH(ctx context.Context, id string, assigned slot) error {
 	service := unit(id) + ".service"
 	stop := run(ctx, systemctlPath, "stop", service)
 	state, err := native(ctx, nil, systemctlPath, "show", "--property=ActiveState", "--value", service)
@@ -175,7 +175,7 @@ func stopSSH(ctx context.Context, id string) error {
 			stop = errors.Join(stop, errors.New("SSH credentials remain"))
 		}
 	}
-	listening, err := listener(ctx)
+	listening, err := listener(ctx, assigned)
 	if err != nil || listening {
 		stop = errors.Join(stop, err, errors.New("couldn't verify removal of the protected SSH listener"))
 	}

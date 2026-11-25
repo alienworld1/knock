@@ -279,7 +279,9 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request, account str
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	if !s.withinQuota("send/"+account, 24) {
+	// Eight SSH sessions can send three status deliveries every ten seconds.
+	// Leave room for connection replies and immediate lifecycle changes.
+	if !s.withinQuota("send/"+account, 192) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		return
 	}

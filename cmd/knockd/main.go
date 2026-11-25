@@ -7,9 +7,11 @@ import (
 	"os"
 	"time"
 
+	"knock/internal/admission"
 	"knock/internal/command"
 	"knock/internal/door"
 	"knock/internal/lease"
+	"knock/internal/protocol"
 
 	"github.com/spf13/cobra"
 )
@@ -57,19 +59,46 @@ func root() *cobra.Command {
 				if err != nil {
 					return command.Exit(2, err)
 				}
+				var ssh *lease.Host
+				if config.WireGuardEndpoint != "" {
+					ssh, err = reconcileSSH(cmd.Context(), config)
+					if err != nil {
+						return command.Exit(7, err)
+					}
+					defer ssh.Release()
+				}
 				keys, err := command.SystemdUnlock(config.DoorProfile)
 				if err != nil {
 					return command.Exit(8, err)
 				}
 				defer keys.Clear()
 				if config.Mailbox != "" && config.Policy.Enabled {
-					return serveAdmission(cmd, config, keys)
+					return serveAdmission(cmd, config, keys, ssh)
 				}
 				return command.Exit(3, door.Serve(cmd.Context(), config, keys, command.Progress))
 			},
 		},
 	)
 	root.AddCommand(
+		&cobra.Command{
+			Use: "reconcile", Short: "Close outstanding SSH sessions on a stopped Door", Args: cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				config, err := door.LoadConfig(path)
+				if err != nil {
+					return command.Exit(2, err)
+				}
+				if config.WireGuardEndpoint == "" {
+					return command.Exit(2, errors.New("the Door has no configured SSH service"))
+				}
+				ssh, err := reconcileSSH(cmd.Context(), config)
+				if err != nil {
+					return command.Exit(7, err)
+				}
+				defer ssh.Release()
+				fmt.Fprintln(cmd.OutOrStdout(), "SSH cleanup verified")
+				return nil
+			},
+		},
 		&cobra.Command{
 			Use: "expire-ssh <session>", Hidden: true, Args: cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
@@ -96,4 +125,31 @@ func root() *cobra.Command {
 		},
 	)
 	return root
+}
+
+// Deny and verify host resources before depending on credentials, chain or Mailbox.
+func reconcileSSH(ctx context.Context, config door.Config) (*lease.Host, error) {
+	call, cancel := context.WithTimeout(ctx, 75*time.Second)
+	defer cancel()
+	ssh, cleanup := lease.StartHost(call, config.WireGuardEndpoint)
+	if cleanup != nil {
+		if !errors.Is(cleanup, lease.ErrDoorLocked) {
+			command.Progress("SSH cleanup incomplete. Admissions remain closed.")
+		}
+		return nil, cleanup
+	}
+	db, err := protocol.OpenState(config.State)
+	if err == nil {
+		defer db.Close()
+		var journal *admission.Journal
+		journal, err = admission.NewJournal(db)
+		if err == nil {
+			err = (admission.Host{Journal: journal, Progress: command.Progress}).ReconcileSSH("Door restarted", true)
+		}
+	}
+	if err != nil {
+		ssh.Release()
+		return nil, err
+	}
+	return ssh, nil
 }

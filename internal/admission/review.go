@@ -80,7 +80,7 @@ func OpenReview(ctx context.Context, authority Authority, keys *identity.Keys, m
 	if err != nil {
 		return Review{}, err
 	}
-	if err := verifyManifest(ctx, authority, card, doorBinding, a, wrapper.Manifest); err != nil {
+	if _, err := verifyManifest(ctx, authority, card, doorBinding, a, wrapper.Manifest); err != nil {
 		return Review{}, err
 	}
 	return Review{intent, wrapper.Manifest}, nil
@@ -106,7 +106,7 @@ func (r Review) Decision(ctx context.Context, authority Authority, keys *identit
 	if err != nil {
 		return mailbox.Message{}, err
 	}
-	if err := verifyManifest(ctx, authority, card, actor.Binding, a, r.signed); err != nil {
+	if _, err := verifyManifest(ctx, authority, card, actor.Binding, a, r.signed); err != nil {
 		return mailbox.Message{}, err
 	}
 	m, err := protocol.Digest(r.signed)

@@ -66,6 +66,17 @@ func TestDianaVerifiedRecipient(t *testing.T) {
 	if err := card.Verify(ctx, native, evm, config.Registry, config.Account); err != nil {
 		t.Fatal(err)
 	}
+	if config.Policy.Version > 1 {
+		old := config
+		old.Policy.Version--
+		stalePolicy, err := NewCard(old, config.Owner, doorKey, card.Details.Recipient, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := stalePolicy.Verify(ctx, native, evm, config.Registry, config.Account); err == nil {
+			t.Fatal("accepted an authentic Card with a stale Diana policy")
+		}
+	}
 	stale := card
 	stale.Details.Expires = time.Now().Add(-time.Second).Unix()
 	if err := stale.Verify(ctx, native, evm, config.Registry, config.Account); err == nil {
