@@ -189,7 +189,11 @@ func printSession(out io.Writer, item sessionDisplay) {
 	fmt.Fprintf(out, "Session %s · %s\n", item.Session.Hex(), item.State)
 	if record := item.LastVerified; record != nil {
 		utc := func(unix int64) string { return time.Unix(unix, 0).UTC().Format(time.RFC3339) }
-		fmt.Fprintf(out, "%s · Expires %s · Last verified %s\nRequest %s\n", record.Role, utc(record.Deadline), utc(record.Observed), record.RequestID.Hex())
+		scope := record.Role
+		if record.Service != "" {
+			scope = record.Service
+		}
+		fmt.Fprintf(out, "%s · Expires %s · Last verified %s\nRequest %s\n", scope, utc(record.Deadline), utc(record.Observed), record.RequestID.Hex())
 		if item.State == "Unknown" {
 			fmt.Fprintf(out, "Last known state %s · Closure unknown\n", record.State)
 		}

@@ -29,8 +29,10 @@ type Request struct {
 	ssh      ed25519.PrivateKey
 }
 
-func (r *Request) ID() common.Hash     { return r.auth.RequestID }
-func (r *Request) Deadline() time.Time { return time.Unix(r.auth.Deadline, 0) }
+func (r *Request) ID() common.Hash         { return r.auth.RequestID }
+func (r *Request) Deadline() time.Time     { return time.Unix(r.auth.Deadline, 0) }
+func (r *Request) Commitment() common.Hash { return r.manifest }
+func (r *Request) Metered() bool           { return r.auth.Offer != "" }
 
 func (r *Request) Clear() {
 	clear(r.reply.Seed)
@@ -44,9 +46,15 @@ func BuildRequest(ctx context.Context, authority Authority, relay *mailbox.Clien
 	card door.Card, role string, duration time.Duration, reason string,
 ) (*Request, []mailbox.Message, error) {
 	d := card.Details
-	if !ValidReason(reason) || duration <= 0 || duration%time.Second != 0 ||
-		!d.Policy.Enabled || !validScope(d, role, uint64(duration/time.Second)) {
-		return nil, nil, errors.New("choose an advertised role, a permitted duration, and a printable reason")
+	if !d.Policy.Enabled || duration <= 0 || duration%time.Second != 0 {
+		return nil, nil, ErrPolicy
+	}
+	if d.Policy.Offer == nil {
+		if !ValidReason(reason) || !validScope(d, role, uint64(duration/time.Second)) {
+			return nil, nil, errors.New("choose an advertised role, a permitted duration, and a printable reason")
+		}
+	} else if role != "" || reason != "" || uint64(duration/time.Second) != d.Policy.MaxDurationSeconds {
+		return nil, nil, errors.New("choose the advertised fixed pass duration")
 	}
 	if keys.Account.Bech32 == d.Account {
 		return nil, nil, errors.New("use a requester identity separate from the Door")
@@ -99,6 +107,9 @@ func buildRequest(keys *identity.Keys, card door.Card, requesterCard qoreseal.Re
 		Service: "ssh", Role: role, Seconds: uint64(duration / time.Second), Created: now.Unix(),
 		Deadline: now.Add(RequestLifetime).Unix(),
 	}
+	if d.Policy.Offer != nil {
+		a.Service, a.Offer = d.Policy.Offer.Service, d.Policy.Offer.ID.Hex()
+	}
 	rand.Read(a.RequestID[:])
 	rand.Read(a.Salt[:])
 	request := &Request{auth: a}
@@ -116,14 +127,17 @@ func buildRequest(keys *identity.Keys, card door.Card, requesterCard qoreseal.Re
 		return nil, nil, err
 	}
 	request.wg = wg.Bytes()
-	ssh, secret, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, nil, err
+	var sshPublic [32]byte
+	if a.Offer == "" {
+		public, secret, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return nil, nil, err
+		}
+		sshPublic, request.ssh = [32]byte(public), secret
 	}
-	request.ssh = secret
 
 	doorBody := doorPayload{
-		Authorization: a, WireGuard: [32]byte(wg.PublicKey().Bytes()), SSH: [32]byte(ssh),
+		Authorization: a, WireGuard: [32]byte(wg.PublicKey().Bytes()), SSH: sshPublic,
 		Reply: qoreseal.RecipientOf(request.reply), ReplyRoute: a.Requester.Account,
 	}
 	id := func(purpose string) common.Hash { return recordID(purpose, a.DoorID, a.RequestID, "") }
@@ -132,13 +146,17 @@ func buildRequest(keys *identity.Keys, card door.Card, requesterCard qoreseal.Re
 		return nil, nil, err
 	}
 	doorHash := sha256.Sum256(toDoor)
-	// The Door knows the common authorization salt. Keep an independent salt
-	// with the reason so the reviewed digest does not enable guesses by the Door.
-	approval := approvalPayload{Authorization: a, DoorEnvelope: doorHash, Reason: reason}
-	rand.Read(approval.ReviewSalt[:])
-	toReview, err := seal(approval, id(reviewDelivery), reviewInner, recipients...)
-	if err != nil {
-		return nil, nil, err
+	var toReview []byte
+	var reviewHash common.Hash
+	if a.Offer == "" {
+		// Keep an independent salt so the review digest does not expose the reason to the Door.
+		approval := approvalPayload{Authorization: a, DoorEnvelope: doorHash, Reason: reason}
+		rand.Read(approval.ReviewSalt[:])
+		toReview, err = seal(approval, id(reviewDelivery), reviewInner, recipients...)
+		if err != nil {
+			return nil, nil, err
+		}
+		reviewHash = sha256.Sum256(toReview)
 	}
 	authHash, err := protocol.Digest(a)
 	if err != nil {
@@ -147,7 +165,7 @@ func buildRequest(keys *identity.Keys, card door.Card, requesterCard qoreseal.Re
 	m := manifest{
 		Authorization: authHash, RequestID: a.RequestID, Door: a.Door, DoorID: a.DoorID, Requester: a.Requester,
 		RequesterCard: requesterCard, Approvers: approvers, DoorEnvelope: doorHash,
-		ReviewEnvelope: sha256.Sum256(toReview), Deadline: a.Deadline, Mode: d.Mode,
+		ReviewEnvelope: reviewHash, Deadline: a.Deadline, Mode: d.Mode,
 	}
 	sig, err := protocol.Sign(keys, manifestPurpose, m)
 	if err != nil {
@@ -162,11 +180,14 @@ func buildRequest(keys *identity.Keys, card door.Card, requesterCard qoreseal.Re
 	if err != nil {
 		return nil, nil, err
 	}
+	messages := []mailbox.Message{{Route: d.Account, ID: id(doorDelivery), Expires: a.Deadline, Body: doorWrapper}}
+	if a.Offer != "" {
+		return request, messages, nil
+	}
 	reviewWrapper, err := seal(delivery{signed, toReview}, id(reviewDelivery), reviewDelivery, recipients...)
 	if err != nil {
 		return nil, nil, err
 	}
-	messages := []mailbox.Message{{Route: d.Account, ID: id(doorDelivery), Expires: a.Deadline, Body: doorWrapper}}
 	for _, actor := range approvers {
 		messages = append(messages, mailbox.Message{
 			Route: actor.Account, ID: id(reviewDelivery), Expires: a.Deadline, Body: reviewWrapper,
@@ -232,6 +253,9 @@ func (r *Request) ReadResponse(ctx context.Context, authority Authority, message
 		s.Issued >= a.Deadline || s.Issued > now.Unix()+5 {
 		return result, ErrInvalid
 	}
+	if r.Metered() && s.Decision != r.manifest {
+		return result, ErrInvalid
+	}
 	if purpose == connectionPurpose {
 		c := s.Connection
 		if s.Outcome != Ready || c == nil || c.Issued < a.Created-5 || c.Issued > s.Issued ||
@@ -243,8 +267,11 @@ func (r *Request) ReadResponse(ctx context.Context, authority Authority, message
 		if err != nil || c.ClientWireGuard != [32]byte(wg.PublicKey().Bytes()) {
 			return result, ErrInvalid
 		}
-		sshPublic := r.ssh.Public().(ed25519.PublicKey)
-		if err := c.Data.Validate(lease.Grant{ID: hex.EncodeToString(s.Session[:]), Deadline: time.Unix(c.Deadline, 0), SSH: [32]byte(sshPublic)}); err != nil {
+		grant := lease.Grant{ID: hex.EncodeToString(s.Session[:]), Deadline: time.Unix(c.Deadline, 0), HTTP: r.Metered()}
+		if !grant.HTTP {
+			grant.SSH = [32]byte(r.ssh.Public().(ed25519.PublicKey))
+		}
+		if err := c.Data.Validate(grant); err != nil {
 			return result, ErrInvalid
 		}
 	} else if s.Connection != nil || (s.Outcome != Authorized && s.Outcome != Denied && s.Outcome != ProvisionFailed) {

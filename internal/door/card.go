@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math/big"
 	"slices"
 	"strings"
 	"time"
@@ -27,6 +28,45 @@ type Policy struct {
 	ApproversCanRevoke bool     `json:"approversCanRevoke"`
 	Approvers          []string `json:"approvers"`
 	Roles              []string `json:"roles"`
+	Offer              *Offer   `json:"offer,omitempty" cbor:",omitempty"`
+}
+
+type Offer struct {
+	ID          common.Hash `json:"id"`
+	Service     string      `json:"service"`
+	PriceUQOR   uint64      `json:"priceUqor"`
+	Beneficiary string      `json:"beneficiary"`
+}
+
+const (
+	Approval = "approval"
+	Metered  = "metered"
+)
+
+func (p Policy) Mode() string {
+	if p.Offer != nil {
+		return Metered
+	}
+	return Approval
+}
+
+func (p Policy) PaymentOffer() (chain.Offer, error) {
+	o := p.Offer
+	if o == nil || o.ID == (common.Hash{}) || !IsAlias(o.Service) || o.PriceUQOR == 0 ||
+		p.MaxDurationSeconds == 0 || p.MaxDurationSeconds > 3600 || len(p.Roles) != 0 ||
+		len(p.Approvers) != 0 || p.ApproversCanRevoke {
+		return chain.Offer{}, errors.New("metered policy requires one service, an exact positive price and a duration up to one hour")
+	}
+	beneficiary, err := ParseAccount(o.Beneficiary)
+	if err != nil {
+		return chain.Offer{}, err
+	}
+	address := common.BytesToAddress(beneficiary.Bytes)
+	if address == (common.Address{}) {
+		return chain.Offer{}, errors.New("metered policy requires a beneficiary")
+	}
+	amount := new(big.Int).Mul(new(big.Int).SetUint64(o.PriceUQOR), big.NewInt(1_000_000_000_000))
+	return chain.Offer{Id: o.ID, Version: p.Version, Duration: p.MaxDurationSeconds, Amount: amount, Beneficiary: address}, nil
 }
 
 type Details struct {
@@ -80,7 +120,17 @@ func ParseAccount(account string) (qoresign.AccountAddress, error) {
 }
 
 func (p Policy) ChainPolicy() (chain.Policy, error) {
-	if p.Version == 0 || p.MaxDurationSeconds == 0 || p.MaxDurationSeconds > uint64((1<<63-1)/time.Second) ||
+	if p.Version == 0 {
+		return chain.Policy{}, errors.New("policy needs a version")
+	}
+	if p.Offer != nil {
+		if _, err := p.PaymentOffer(); err != nil {
+			return chain.Policy{}, err
+		}
+		data, err := encoding.Marshal(p)
+		return chain.Policy{Commitment: sha256.Sum256(data), Enabled: p.Enabled, Approvers: []common.Address{}}, err
+	}
+	if p.MaxDurationSeconds == 0 || p.MaxDurationSeconds > uint64((1<<63-1)/time.Second) ||
 		len(p.Approvers) == 0 || len(p.Approvers) > 8 || len(p.Roles) == 0 || len(p.Roles) > 2 {
 		return chain.Policy{}, errors.New("policy needs a version, a positive duration, roles, and one to eight approvers")
 	}
@@ -122,7 +172,7 @@ func NewCard(config Config, owner string, keys *identity.Keys, recipient qoresea
 		Version: 1, NativeChain: chain.NativeID, EVMChain: chain.EVMID, Registry: config.Registry, DoorID: config.DoorID,
 		Account: keys.Account.Bech32, Owner: owner, SigningKey: sha256.Sum256(keys.Signing.PublicKey),
 		KEMKey: sha256.Sum256(keys.Recipient.MlkemPublicKey), Recipient: recipient,
-		Policy: config.Policy, PolicyCommitment: policy.Commitment, Mode: "approval", Inbox: config.DoorID, Mailbox: config.Mailbox,
+		Policy: config.Policy, PolicyCommitment: policy.Commitment, Mode: config.Policy.Mode(), Inbox: config.DoorID, Mailbox: config.Mailbox,
 		Issued: now.Unix(), Expires: now.Add(lifetime).Unix(),
 	}
 	data, err := details.signBytes()
@@ -166,7 +216,7 @@ func (c Card) Verify(ctx context.Context, n *chain.Native, e *chain.EVM, registr
 	d := c.Details
 	now := time.Now().Unix()
 	if d.Version != 1 || d.NativeChain != chain.NativeID || d.EVMChain != chain.EVMID || d.Registry != registry ||
-		d.DoorID == (common.Hash{}) || d.Inbox != d.DoorID || d.Mode != "approval" || d.Account != account {
+		d.DoorID == (common.Hash{}) || d.Inbox != d.DoorID || d.Mode != d.Policy.Mode() || d.Account != account {
 		return errors.New("Door Card does not match the expected identity, network or registry")
 	}
 	if d.Mailbox != "" {
@@ -214,6 +264,19 @@ func (c Card) Verify(ctx context.Context, n *chain.Native, e *chain.EVM, registr
 	if onchain.Owner != common.BytesToAddress(ownerAccount.Bytes) || onchain.Account != common.BytesToAddress(doorAccount.Bytes) ||
 		onchain.Version != d.Policy.Version || !matchesPolicy(onchain.Policy, policy) {
 		return errors.New("Door Card policy or owner does not match the finalized registry")
+	}
+	if d.Mode == Metered && d.Policy.Enabled {
+		expected, err := d.Policy.PaymentOffer()
+		if err != nil {
+			return err
+		}
+		actual, err := e.OfferAt(ctx, registry, block, d.DoorID)
+		if err != nil {
+			return err
+		}
+		if !expected.Matches(actual) {
+			return errors.New("Door Card offer does not match the finalized registry")
+		}
 	}
 	if err := e.Binding(ctx, doorAccount, signing, block); err != nil {
 		return err

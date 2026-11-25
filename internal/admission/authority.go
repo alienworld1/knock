@@ -110,7 +110,7 @@ func verifyManifest(ctx context.Context, authority Authority, card door.Card, cu
 	if err != nil || m.Authorization != digest || m.RequestID != a.RequestID ||
 		m.Door != a.Door || m.Door != currentDoor || m.DoorID != a.DoorID ||
 		m.Requester != a.Requester || m.Deadline != a.Deadline || m.Mode != d.Mode ||
-		m.DoorEnvelope == (common.Hash{}) || m.ReviewEnvelope == (common.Hash{}) ||
+		m.DoorEnvelope == (common.Hash{}) || (d.Mode == door.Metered) != (m.ReviewEnvelope == (common.Hash{})) ||
 		len(m.Approvers) != len(d.Policy.Approvers) {
 		return Actor{}, ErrInvalid
 	}

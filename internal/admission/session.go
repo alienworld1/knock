@@ -28,14 +28,14 @@ func (h Host) provision(ctx context.Context, body doorPayload, manifest, decisio
 	if provisionErr == nil {
 		call, cancel := context.WithDeadline(ctx, deadline)
 		provisionErr = h.issue(call, body, record, manifest, decision, lease.Grant{
-			ID: id, Role: a.Role, Deadline: deadline, WireGuard: body.WireGuard, SSH: body.SSH, Recheck: verify,
+			ID: id, Role: a.Role, Deadline: deadline, WireGuard: body.WireGuard, SSH: body.SSH, HTTP: a.Offer != "", Recheck: verify,
 			Confirm: func() error {
 				item, err := h.Journal.get(a.RequestID)
 				if err != nil {
 					return err
 				}
 				if item.Lease == nil || item.Lease.State != lease.Provisioning {
-					return errors.New("SSH provisioning is no longer authorized")
+					return errors.New("connection provisioning is no longer authorized")
 				}
 				return nil
 			},

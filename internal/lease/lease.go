@@ -40,6 +40,7 @@ type Connection struct {
 	HostKey     []byte
 	Certificate []byte
 	Slot        uint8 `cbor:",omitempty"`
+	HTTP        bool  `cbor:",omitempty"`
 }
 
 func ValidateEndpoint(value string) (netip.AddrPort, error) {
@@ -58,6 +59,7 @@ type Grant struct {
 	Deadline  time.Time
 	WireGuard [32]byte
 	SSH       [32]byte
+	HTTP      bool
 	Recheck   func(context.Context) error
 	Confirm   func() error
 }
@@ -71,15 +73,24 @@ func principal(id string) string { return "knock-" + id }
 
 func (c Connection) Validate(g Grant) error {
 	assigned := slot(c.Slot)
-	if !assigned.valid() {
-		return errors.New("invalid SSH slot")
+	if !assigned.valid() || c.HTTP != g.HTTP {
+		return errors.New("invalid connection slot or service")
 	}
 	if _, err := ValidateEndpoint(c.Endpoint); err != nil {
 		return err
 	}
-	host, err := ssh.ParsePublicKey(c.HostKey)
-	if err != nil || host.Type() != ssh.KeyAlgoED25519 || c.ServerKey == ([32]byte{}) || c.PSK == ([32]byte{}) {
+	if c.ServerKey == ([32]byte{}) || c.PSK == ([32]byte{}) {
 		return errors.New("invalid Door connection keys")
+	}
+	if c.HTTP {
+		if len(c.HostKey) != 0 || len(c.Certificate) != 0 {
+			return errors.New("invalid HTTP connection")
+		}
+		return nil
+	}
+	host, err := ssh.ParsePublicKey(c.HostKey)
+	if err != nil || host.Type() != ssh.KeyAlgoED25519 {
+		return errors.New("invalid Door SSH host key")
 	}
 	pub, err := ssh.ParsePublicKey(c.Certificate)
 	if err != nil {

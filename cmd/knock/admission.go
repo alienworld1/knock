@@ -27,16 +27,27 @@ import (
 )
 
 func (s *settings) requestFlags(root *cobra.Command) {
-	var ssh bool
+	var ssh, tunnel bool
 	var role, reason string
-	var duration time.Duration
-	root.Use = "knock <door> --ssh --role <role> --for <duration> --reason <reason>"
+	var duration, pay time.Duration
+	var price uint64
+	root.Use = "knock <door> [--ssh --role <role> --for <duration> --reason <reason> | --tunnel --pay <duration>]"
 	root.Args = cobra.MaximumNArgs(1)
 	root.Flags().BoolVar(&ssh, "ssh", false, "request SSH access")
 	root.Flags().StringVar(&role, "role", "", "role advertised by the Door")
 	root.Flags().DurationVar(&duration, "for", 0, "requested access duration")
 	root.Flags().StringVar(&reason, "reason", "", "reason for approvers; use - to enter privately")
+	root.Flags().BoolVar(&tunnel, "tunnel", false, "connect to a metered private service")
+	root.Flags().DurationVar(&pay, "pay", 0, "duration of the advertised pass")
+	root.Flags().Uint64Var(&price, "price-uqor", 0, "confirm payment only at this exact price in uqor")
 	root.RunE = func(cmd *cobra.Command, args []string) error {
+		if cmd.Flags().Changed("tunnel") || cmd.Flags().Changed("pay") || cmd.Flags().Changed("price-uqor") {
+			if len(args) != 1 || !tunnel || pay <= 0 || pay%time.Second != 0 ||
+				cmd.Flags().Changed("ssh") || cmd.Flags().Changed("role") || cmd.Flags().Changed("for") || cmd.Flags().Changed("reason") {
+				return command.Exit(2, errors.New("set a Door, --tunnel, and --pay in whole seconds"))
+			}
+			return s.buyPass(cmd, args[0], pay, price)
+		}
 		if len(args) == 0 && !cmd.Flags().Changed("ssh") && !cmd.Flags().Changed("role") &&
 			!cmd.Flags().Changed("for") && !cmd.Flags().Changed("reason") {
 			return cmd.Help()
@@ -66,7 +77,8 @@ func (s *settings) requestFlags(root *cobra.Command) {
 			if _, err := protocol.Origin(card.Details.Mailbox); err != nil {
 				return command.Exit(2, errors.New("the Door Card has no valid Mailbox origin. Ask the Door operator for a current Card."))
 			}
-			if !card.Details.Policy.Enabled || uint64(duration/time.Second) > card.Details.Policy.MaxDurationSeconds {
+			if card.Details.Mode != door.Approval || !card.Details.Policy.Enabled ||
+				uint64(duration/time.Second) > card.Details.Policy.MaxDurationSeconds {
 				return command.Exit(2, errors.New("choose a duration within the enabled Door policy"))
 			}
 			keys, err := command.Unlock(command.Profile(s.home, s.profile), "Identity passphrase")
@@ -95,14 +107,18 @@ func (s *settings) requestFlags(root *cobra.Command) {
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "Waiting for approval · Request %s · Until %s UTC\n",
 				request.ID().Hex(), request.Deadline().UTC().Format("15:04:05"))
-			return waitForDecision(cmd, authority, relay, request)
+			return waitForDecision(cmd, authority, relay, request, nil)
 		})
 	}
 }
 
-func waitForDecision(cmd *cobra.Command, authority admission.Authority, relay *mailbox.Client, request *admission.Request) error {
+func waitForDecision(cmd *cobra.Command, authority admission.Authority, relay *mailbox.Client, request *admission.Request, connected func()) error {
 	ctx, cancel := context.WithDeadline(cmd.Context(), request.Deadline())
 	defer cancel()
+	waitingFor, statusUnavailable, outcomeUnavailable := "approval", "Approval status unavailable. Retrying.", "Couldn't verify an approval outcome."
+	if request.Metered() {
+		waitingFor, statusUnavailable, outcomeUnavailable = "access", "Access status unavailable. Retrying.", "Couldn't verify an access outcome."
+	}
 	failures := 0
 	for {
 		messages, err := relay.Inbox(ctx)
@@ -130,11 +146,16 @@ func waitForDecision(cmd *cobra.Command, authority admission.Authority, relay *m
 			case admission.Denied:
 				return command.Exit(4, errors.New("Request denied"))
 			case admission.ProvisionFailed:
+				if request.Metered() {
+					return command.Exit(6, errPaidProvisioning)
+				}
 				return command.Exit(6, errors.New("Couldn't prepare SSH access. Contact the Door operator."))
 			case admission.Ready:
 				defer clear(response.Connection.PSK[:])
 				fmt.Fprintf(cmd.ErrOrStderr(), "Access granted · Expires %s UTC\nConnecting…\n", response.Deadline.UTC().Format("15:04:05"))
-				err := request.Connect(cmd.Context(), response, lease.Streams{In: cmd.InOrStdin(), Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr()})
+				err := request.Connect(cmd.Context(), response, lease.Streams{
+					In: cmd.InOrStdin(), Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(), OnConnected: connected,
+				})
 				return sshExit(err, cmd.ErrOrStderr())
 			default:
 				fmt.Fprintln(cmd.OutOrStdout(), "Authorized")
@@ -146,7 +167,7 @@ func waitForDecision(cmd *cobra.Command, authority admission.Authority, relay *m
 			failed = failures != 0
 		}
 		if failed && failures == 0 && ctx.Err() == nil {
-			fmt.Fprintln(cmd.ErrOrStderr(), "Approval status unavailable. Retrying.")
+			fmt.Fprintln(cmd.ErrOrStderr(), statusUnavailable)
 		}
 		if failed {
 			failures = min(failures+1, 3)
@@ -158,10 +179,10 @@ func waitForDecision(cmd *cobra.Command, authority admission.Authority, relay *m
 		case <-ctx.Done():
 			timer.Stop()
 			if cmd.Context().Err() != nil {
-				return command.Exit(8, errors.New("Stopped waiting for approval"))
+				return command.Exit(8, fmt.Errorf("Stopped waiting for %s", waitingFor))
 			}
 			if failures != 0 {
-				return command.Exit(8, errors.New("Request deadline passed. Couldn't verify an approval outcome."))
+				return command.Exit(8, fmt.Errorf("Request deadline passed. %s", outcomeUnavailable))
 			}
 			return command.Exit(4, admission.ErrExpired)
 		case <-timer.C:

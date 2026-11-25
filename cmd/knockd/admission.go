@@ -129,7 +129,11 @@ func serveAdmission(cmd *cobra.Command, config door.Config, keys *identity.Keys,
 	host := admission.Host{Authority: authority, Keys: keys, Journal: journal, SSH: ssh, Progress: command.Progress}
 	if ssh != nil {
 		group, ctx := errgroup.WithContext(cmd.Context())
-		fmt.Fprintln(cmd.ErrOrStderr(), "Door verified. SSH access is closed until approval.")
+		if config.Policy.Offer != nil {
+			fmt.Fprintln(cmd.ErrOrStderr(), "Door verified. Private service access requires a purchase.")
+		} else {
+			fmt.Fprintln(cmd.ErrOrStderr(), "Door verified. SSH access is closed until approval.")
+		}
 		group.Go(func() error {
 			return host.MonitorSSH(ctx, func(call context.Context, sessions []common.Hash) (chain.RevocationObservation, error) {
 				return evm.ObserveRevocations(call, config.Registry, config.DoorID, sessions)

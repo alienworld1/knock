@@ -66,6 +66,7 @@ type authorization struct {
 	Created    int64
 	Deadline   int64
 	Salt       common.Hash
+	Offer      string `cbor:",omitempty"`
 }
 
 type doorPayload struct {
@@ -195,15 +196,22 @@ func (a authorization) valid(d door.Details, now int64) error {
 	if a.Version != 1 || a.Native != d.NativeChain || a.EVM != d.EVMChain || a.Registry != d.Registry.Address ||
 		a.DoorID != d.DoorID || a.Door.Account != d.Account || a.Door.Signing != d.SigningKey ||
 		a.Door.KEM != d.KEMKey || a.Requester.Account == a.Door.Account || a.RequestID == (common.Hash{}) ||
-		a.Salt == (common.Hash{}) || a.Service != "ssh" || a.Created > now+5 || a.Created < now-int64(mailbox.Retention/time.Second) ||
+		a.Salt == (common.Hash{}) || a.Created > now+5 || a.Created < now-int64(mailbox.Retention/time.Second) ||
 		a.Deadline != a.Created+int64(RequestLifetime/time.Second) || a.Seconds == 0 {
 		return ErrInvalid
 	}
 	if a.Deadline <= now {
 		return ErrExpired
 	}
-	if !d.Policy.Enabled || a.Policy != d.Policy.Version || a.PolicyHash != d.PolicyCommitment ||
-		!validScope(d, a.Role, a.Seconds) {
+	if !d.Policy.Enabled || a.Policy != d.Policy.Version || a.PolicyHash != d.PolicyCommitment {
+		return ErrPolicy
+	}
+	if d.Policy.Offer == nil {
+		if a.Service != "ssh" || a.Offer != "" || !validScope(d, a.Role, a.Seconds) {
+			return ErrPolicy
+		}
+	} else if a.Service != d.Policy.Offer.Service || a.Offer != d.Policy.Offer.ID.Hex() ||
+		a.Role != "" || a.Seconds != d.Policy.MaxDurationSeconds {
 		return ErrPolicy
 	}
 	return nil

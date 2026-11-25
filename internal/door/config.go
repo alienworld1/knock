@@ -71,8 +71,11 @@ func LoadConfig(path string) (Config, error) {
 			return config, err
 		}
 		if config.Mailbox == "" || config.State == "" {
-			return config, errors.New("SSH access requires a Mailbox and a Door admission state file")
+			return config, errors.New("private access requires a Mailbox and a Door admission state file")
 		}
+	}
+	if config.Policy.Enabled && config.Policy.Offer != nil && config.WireGuardEndpoint == "" {
+		return config, errors.New("the metered Door requires a WireGuard endpoint")
 	}
 	if _, err := config.Policy.ChainPolicy(); err != nil {
 		return config, err

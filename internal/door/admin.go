@@ -65,6 +65,15 @@ func Register(ctx context.Context, config Config, operator, keys *identity.Keys,
 	if err != nil {
 		return err
 	}
+	if config.Policy.Offer != nil && config.Policy.Enabled {
+		offer, err := config.Policy.PaymentOffer()
+		if err != nil {
+			return err
+		}
+		if err := evm.SetOffer(ctx, config.Registry, config.DoorID, offer, operator, report); err != nil {
+			return err
+		}
+	}
 	card, err := NewCard(config, operator.Account.Bech32, keys, recipient, time.Now())
 	if err != nil {
 		return err

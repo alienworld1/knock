@@ -41,7 +41,13 @@ func (h Host) Receive(ctx context.Context, message mailbox.Message) error {
 		if err != nil {
 			return err
 		}
-		return h.Journal.accept(body.Authorization.RequestID, digest, message)
+		if err := h.Journal.accept(body.Authorization.RequestID, digest, message); err != nil {
+			return err
+		}
+		if body.Authorization.Offer != "" {
+			return h.fulfillPurchase(ctx, wrapper, body, digest)
+		}
+		return nil
 	}
 	var signed signedDecision
 	if err := open(message.Body, message.ID, decisionPurpose, h.Keys.Recipient, 1, &signed); err != nil {
@@ -63,7 +69,7 @@ func (h Host) verifyRequest(ctx context.Context, message mailbox.Message, wrappe
 		return body, common.Hash{}, ErrInvalid
 	}
 	a := body.Authorization
-	if body.ReplyRoute != a.Requester.Account || body.SSH == ([32]byte{}) ||
+	if body.ReplyRoute != a.Requester.Account || (body.SSH == ([32]byte{})) != (a.Offer != "") ||
 		!h.validX25519(body.WireGuard[:]) ||
 		qoreseal.ValidateMlkemPublicKey(body.Reply.MlkemPublicKey) != nil ||
 		!h.validX25519(body.Reply.X25519PublicKey) || bytes.Equal(body.WireGuard[:], body.Reply.X25519PublicKey) ||
@@ -102,6 +108,9 @@ func (h Host) validX25519(public []byte) bool {
 func (h Host) decide(ctx context.Context, signed signedDecision) error {
 	d := signed.Record
 	a := d.Authorization
+	if a.Offer != "" {
+		return ErrInvalid
+	}
 	now := time.Now().Unix()
 	if a.Door.Account != h.Keys.Account.Bech32 || d.Deadline != a.Deadline || d.Issued >= d.Deadline ||
 		d.Issued < a.Created-5 || d.Issued > now+5 || (d.Outcome != Authorized && d.Outcome != Denied) ||

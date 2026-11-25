@@ -149,7 +149,15 @@ func (e *EVM) Deploy(ctx context.Context, keys *identity.Keys, bytecode []byte, 
 	if len(bytecode) == 0 {
 		return common.Address{}, common.Hash{}, errors.New("registry bytecode is empty")
 	}
-	receipt, err := e.send(ctx, keys, nil, bytecode, 1800000, report)
+	from := common.BytesToAddress(keys.Account.Bytes)
+	gas, err := e.client.EstimateGas(ctx, ethereum.CallMsg{From: from, Data: bytecode})
+	if err != nil {
+		return common.Address{}, common.Hash{}, fmt.Errorf("estimate registry deployment: %w", err)
+	}
+	if gas == 0 || gas > 3_000_000 {
+		return common.Address{}, common.Hash{}, errors.New("registry deployment gas exceeds the testnet limit")
+	}
+	receipt, err := e.send(ctx, keys, nil, bytecode, gas+gas/5, nil, report, nil)
 	if err != nil {
 		return common.Address{}, common.Hash{}, err
 	}
@@ -161,7 +169,7 @@ func (e *EVM) Deploy(ctx context.Context, keys *identity.Keys, bytecode []byte, 
 	return receipt.ContractAddress, hash, err
 }
 
-func (e *EVM) send(ctx context.Context, keys *identity.Keys, to *common.Address, data []byte, gas uint64, report func(string)) (*types.Receipt, error) {
+func (e *EVM) send(ctx context.Context, keys *identity.Keys, to *common.Address, data []byte, gas uint64, value *big.Int, report func(string), record func(common.Hash) error) (*types.Receipt, error) {
 	block, err := e.finalized(ctx)
 	if err != nil {
 		return nil, err
@@ -178,12 +186,16 @@ func (e *EVM) send(ctx context.Context, keys *identity.Keys, to *common.Address,
 	}
 	feeWei := new(big.Int).Mul(gasPrice, new(big.Int).SetUint64(gas))
 	weiPerUqor := big.NewInt(1_000_000_000_000)
-	feeUqor := new(big.Int).Add(feeWei, new(big.Int).Sub(weiPerUqor, big.NewInt(1)))
-	feeUqor.Quo(feeUqor, weiPerUqor)
-	if feeUqor.Cmp(big.NewInt(2_000_000)) > 0 {
+	if feeWei.Cmp(big.NewInt(2_000_000_000_000_000_000)) > 0 {
 		return nil, errors.New("Diana EVM transaction would use more than 2 test QOR in fees")
 	}
-	if err := e.openWindow(ctx, keys, to, feeUqor.String(), report); err != nil {
+	outflow := new(big.Int).Set(feeWei)
+	if value != nil {
+		outflow.Add(outflow, value)
+	}
+	outflow.Add(outflow, new(big.Int).Sub(weiPerUqor, big.NewInt(1)))
+	outflow.Quo(outflow, weiPerUqor)
+	if err := e.openWindow(ctx, keys, to, outflow.String(), report); err != nil {
 		return nil, err
 	}
 	from := common.BytesToAddress(keys.Account.Bytes)
@@ -206,16 +218,25 @@ func (e *EVM) send(ctx context.Context, keys *identity.Keys, to *common.Address,
 	if crypto.PubkeyToAddress(key.PublicKey) != from {
 		return nil, errors.New("EVM signer does not match the native identity")
 	}
-	tx := types.NewTx(&types.LegacyTx{Nonce: nonce, Gas: gas, GasPrice: gasPrice, To: to, Data: data})
+	tx := types.NewTx(&types.LegacyTx{Nonce: nonce, Gas: gas, GasPrice: gasPrice, To: to, Data: data, Value: value})
 	tx, err = types.SignTx(tx, types.LatestSignerForChainID(big.NewInt(EVMID)), key)
 	if err != nil {
 		return nil, err
+	}
+	if record != nil {
+		if err := record(tx.Hash()); err != nil {
+			return nil, fmt.Errorf("record signed EVM transaction: %w", err)
+		}
 	}
 	if err := e.client.SendTransaction(ctx, tx); err != nil {
 		return nil, fmt.Errorf("Diana EVM submission uncertain for %s: %w", tx.Hash(), err)
 	}
 	report("EVM transaction submitted " + tx.Hash().Hex())
-	return e.waitReceipt(ctx, tx.Hash())
+	receipt, err := e.waitReceipt(ctx, tx.Hash())
+	if err != nil {
+		return nil, fmt.Errorf("EVM transaction %s: %w", tx.Hash(), err)
+	}
+	return receipt, nil
 }
 
 func (e *EVM) openWindow(ctx context.Context, keys *identity.Keys, to *common.Address, fee string, report func(string)) error {

@@ -17,8 +17,11 @@ import (
 )
 
 func (h *Host) makeCredentials(g Grant, assigned slot) (Connection, error) {
-	conn := Connection{Endpoint: h.endpoint.String(), ServerKey: h.key, Slot: uint8(assigned)}
+	conn := Connection{Endpoint: h.endpoint.String(), ServerKey: h.key, Slot: uint8(assigned), HTTP: g.HTTP}
 	rand.Read(conn.PSK[:])
+	if g.HTTP {
+		return conn, nil
+	}
 	userKey, err := ssh.NewPublicKey(ed25519.PublicKey(g.SSH[:]))
 	if err != nil {
 		return conn, err
@@ -136,6 +139,10 @@ func startSSH(ctx context.Context, g Grant, assigned slot) error {
 		sshdPath, "-D", "-e", "-f", config); err != nil {
 		return err
 	}
+	return waitListener(ctx, assigned)
+}
+
+func waitListener(ctx context.Context, assigned slot) error {
 	for range 20 {
 		listening, err := listener(ctx, assigned)
 		if err != nil || listening {
@@ -147,7 +154,7 @@ func startSSH(ctx context.Context, g Grant, assigned slot) error {
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
-	return errors.New("the protected SSH listener didn't start")
+	return errors.New("the protected listener didn't start")
 }
 
 func listener(ctx context.Context, assigned slot) (bool, error) {

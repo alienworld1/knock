@@ -308,21 +308,30 @@ func (e *EVM) Revoke(
 func (e *EVM) mutate(
 	ctx context.Context, registry Registry, keys *identity.Keys, report func(string), method string, args ...any,
 ) error {
+	_, err := e.transact(ctx, registry, keys, nil, report, nil, method, args...)
+	return err
+}
+
+func (e *EVM) transact(
+	ctx context.Context, registry Registry, keys *identity.Keys, value *big.Int, report func(string), record func(common.Hash) error,
+	method string, args ...any,
+) (common.Hash, error) {
 	data, err := e.abi.Pack(method, args...)
 	if err != nil {
-		return err
+		return common.Hash{}, err
 	}
 	from := common.BytesToAddress(keys.Account.Bytes)
-	estimate, err := e.client.EstimateGas(ctx, ethereum.CallMsg{From: from, To: &registry.Address, Data: data})
+	estimate, err := e.client.EstimateGas(ctx, ethereum.CallMsg{From: from, To: &registry.Address, Data: data, Value: value})
 	if err != nil {
-		return fmt.Errorf("registry refused %s preflight: %w", method, err)
+		return common.Hash{}, fmt.Errorf("registry refused %s preflight: %w", method, err)
 	}
 	if estimate == 0 || estimate > 600000 {
-		return errors.New("registry gas estimate exceeds the testnet limit")
+		return common.Hash{}, errors.New("registry gas estimate exceeds the testnet limit")
 	}
-	receipt, err := e.send(ctx, keys, &registry.Address, data, estimate+estimate/5, report)
-	if err == nil {
-		report("EVM transaction confirmed " + receipt.TxHash.Hex())
+	receipt, err := e.send(ctx, keys, &registry.Address, data, estimate+estimate/5, value, report, record)
+	if err != nil {
+		return common.Hash{}, err
 	}
-	return err
+	report("EVM transaction confirmed " + receipt.TxHash.Hex())
+	return receipt.TxHash, nil
 }

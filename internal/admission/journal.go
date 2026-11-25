@@ -19,14 +19,15 @@ const maxJournal = 4096
 type Journal struct{ db *bolt.DB }
 
 type entry struct {
-	Manifest common.Hash
-	Decision common.Hash
-	Deadline int64
-	Outcome  Outcome
-	Delivery *mailbox.Message
-	Notice   *mailbox.Message
-	Lease    *leaseRecord
-	Evidence *leaseEvidence
+	Manifest        common.Hash
+	Decision        common.Hash
+	Deadline        int64
+	Outcome         Outcome
+	Delivery        *mailbox.Message
+	Notice          *mailbox.Message
+	Lease           *leaseRecord
+	Evidence        *leaseEvidence
+	PaymentReserved bool `json:",omitempty"`
 }
 
 func NewJournal(db *bolt.DB) (*Journal, error) {
@@ -85,6 +86,31 @@ func (j *Journal) get(id common.Hash) (entry, error) {
 		return err
 	})
 	return item, err
+}
+
+// reservePayment claims the only consumption attempt before any transaction can be sent.
+func (j *Journal) reservePayment(id, manifest common.Hash) (bool, error) {
+	var reserved bool
+	err := j.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(journalName)
+		item, err := loadEntry(b, id)
+		if err != nil {
+			return err
+		}
+		if item.Manifest != manifest {
+			return ErrInvalid
+		}
+		if item.Outcome != Pending || item.PaymentReserved {
+			return nil
+		}
+		if time.Now().Unix() >= item.Deadline {
+			return ErrExpired
+		}
+		item.PaymentReserved = true
+		reserved = true
+		return writeEntry(b, id, item)
+	})
+	return reserved, err
 }
 
 type leaseRecord struct {

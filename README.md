@@ -1,6 +1,6 @@
 # Knock
 
-Knock grants short-lived, restricted SSH access to verified QoreChain Diana identities. An approver reviews the encrypted request. After approval, the Door opens a private connection and ends it at the fixed deadline or when it observes a finalized Diana revocation.
+Knock grants short-lived access to verified QoreChain Diana identities. Request restricted SSH through an Approval Door or buy a fixed-duration pass to a private HTTP service. The Door ends access at the fixed deadline or when it observes a finalized Diana revocation.
 
 ## Build
 
@@ -56,6 +56,18 @@ Use `deny` to decline. Keep the requester running while you review. After a gran
 
 Enter the reason with `--reason -` to keep it out of shell history. The Mailbox can see delivery accounts, timing, sizes, opaque message IDs, and expiry. Reasons are encrypted for approvers. Expired messages are pruned from the live queue. Old disk pages and backups may retain ciphertext.
 
+## Buy a service pass
+
+Register a second Door with its own profile, state, and Ubuntu VM. Use the same registry pin and Mailbox setup. In its policy, leave `roles` and `approvers` empty and set `approversCanRevoke` to `false`. Set `maxDurationSeconds` to the fixed pass duration and add an `offer` with a unique 32-byte hex `id`, a short lowercase `service` name, an exact positive integer `priceUqor`, and the `beneficiary` Diana account. One test QOR is 1,000,000 uqor. Use the service setup below. The Metered Door serves a read-only HTTP status resource and needs no local SSH slot accounts.
+
+```sh
+knock --network network.json --cards cards door show private-status
+knock --network network.json --cards cards private-status --tunnel --pay 2m
+knock payment show "$pass_reference"
+```
+
+Verify the Card and save the alias with `knock door trust` first. Knock shows the exact testnet price before asking for confirmation. After a verified service request, it prints the private URL and keeps the tunnel open until expiry or disconnect. Use `payment show` with the printed pass reference to check a payment after an interruption. If access is unverified, give the reference to the Door operator before paying again.
+
 ## Check or revoke a session
 
 Run these commands with your profile, registry and Card options. Copy the session ID from the list. Publish the owner's recipient card before granting access if the owner will check session status.
@@ -68,11 +80,11 @@ knock sessions show --door validator-ops "$session_id"
 
 The owner and eligible approvers can revoke. The Door checks Diana directly, even if the Mailbox goes offline. Wait for the Door's signed closure evidence to verify enforcement. During a Diana outage, the Door requires fresh verification for new grants and existing grants still expire locally. If status becomes stale, Knock shows the last verified observation. When cleanup is incomplete, the Door retains its ownership record and retries.
 
-## Run an SSH Door
+## Run a Door
 
-Use a dedicated, always-on Ubuntu 24.04 VM with cgroup v2, WireGuard, nftables, and OpenSSH. Keep time synchronized and disable suspend. Keep management SSH on a separate network. Knock reserves the `knockdoor` interface, the `knock_ssh` nftables table, `198.19.0.0/28`, and SSH ports 2222–2229 on `198.19.0.1`. Each concurrent session needs its own local account. The setup below creates two slots. For up to eight, add `knockssh2` through `knockssh7` with the same restrictions.
+Use a dedicated, always-on Ubuntu 24.04 VM with cgroup v2, WireGuard, and nftables. Keep time synchronized and disable suspend. Keep management SSH on a separate network. Knock reserves the `knockdoor` interface, the `knock_ssh` nftables table, `198.19.0.0/28`, and TCP ports 2222–2229 on `198.19.0.1`. For an Approval Door, install OpenSSH and create a local account per concurrent session. The setup below creates two SSH slots. For up to eight, add `knockssh2` through `knockssh7` with the same restrictions.
 
-Set `wireGuardEndpoint` in the private Door configuration to a numeric address and UDP port reachable by the requester, for example `198.18.0.1:48001` in the lab. Permit that UDP port on the Door's external interface. Leave the private SSH listener behind Knock's firewall. Install the files under `/etc/knock` with root ownership and the Door profile at mode `0600`. Keep the owner profile on the operator machine.
+Set `wireGuardEndpoint` in the private Door configuration to a numeric address and UDP port reachable by the requester, for example `198.18.0.1:48001` in the lab. Permit that UDP port on the Door's external interface. Leave the private listener behind Knock's firewall. Install the files under `/etc/knock` with root ownership and the Door profile at mode `0600`. Keep the owner profile on the operator machine.
 
 ```sh
 sudo install -m 0755 bin/knockd /usr/local/bin/knockd
@@ -105,6 +117,6 @@ deploy/lab/stop.sh /tmp/knock-lab
 
 The lab includes two requester guests and a separate outsider. The probe uses the Door, first requester, and outsider to check the closed service, WireGuard, SSH certificate restrictions, timed nftables membership, and systemd cgroup cleanup. Use a new lab directory for a clean run.
 
-Verified on Diana with registry `0x1c334C21920CD88fB9E372Acd78a1772D2A32a78`. [Deployment](https://explore.qore.network/tx/0x0719fc5668e0c2772d800a322df5ec96a51dc323627c6ccbd8a48f89207b53cb), [Door registration](https://explore.qore.network/tx/0x2766c0a4e8111703bb8f8927b8fd51fac87ca8e55099a22caa1b751ca8dbf97d), [policy update](https://explore.qore.network/tx/0xdfa0f058aaa11a72cead637c982b84600d8a940b593b2494ffa8aba8f5e96a85), [Live SSH revocation](https://explore.qore.network/tx/0x5eab80cb03111cbe8bf9322ba39ee4ecc675326bb73fc01e3b67b3631a13f965). In the lab, the revoked connection ended about 25 seconds after the command started while the Mailbox was offline.
+Both Door modes were verified on Diana with registry `0xd80502c7dfe2a29a087118b81549b9cb267f3b0d`. [Deployment](https://explore.qore.network/tx/0xa015ceec6fbcc969d9117df573fb852fe5686a49772009003619b95ecd31757b), [SSH revocation](https://explore.qore.network/tx/0xf8cdcd6e6a1f3eba3a2ec93fb55b2f1c7190ef003f2f0838f9a2b0458e781336), [Service pass purchase](https://explore.qore.network/tx/0xa49e42248906a06288346cd6f9cea97ef60356941f2f8dff4682c0e7b398942f), [Pass consumption](https://explore.qore.network/tx/0xce70c936ddc0863fd51522b102b014a81f41a52a55f5d43c5d7c9108ef8d973f).
 
 Apache-2.0.

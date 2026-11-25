@@ -44,6 +44,7 @@ type sessionRecipients struct {
 	RequestID  common.Hash
 	Role       string
 	Recipients []sessionRecipient
+	Service    string `cbor:",omitempty"`
 }
 
 type leaseEvidence struct {
@@ -74,6 +75,7 @@ type SessionStatus struct {
 	Session      common.Hash    `json:"sessionId"`
 	Door         string         `json:"door"`
 	Role         string         `json:"role"`
+	Service      string         `json:"service,omitempty" cbor:",omitempty"`
 	State        lease.State    `json:"state"`
 	Revision     uint64         `json:"revision"`
 	Observed     int64          `json:"observed"`
@@ -109,7 +111,10 @@ type signedSessionStatus struct {
 }
 
 func (h Host) sealSessionRecipients(id common.Hash, a authorization, recipients []sessionRecipient) ([]byte, error) {
-	targets := sessionRecipients{a.Registry, a.DoorID, a.RequestID, a.Role, recipients}
+	targets := sessionRecipients{Registry: a.Registry, DoorID: a.DoorID, RequestID: a.RequestID, Role: a.Role, Recipients: recipients}
+	if a.Offer != "" {
+		targets.Service = a.Service
+	}
 	return seal(targets, id, sessionRecipientsPurpose, qoreseal.RecipientOf(h.Keys.Recipient))
 }
 
@@ -161,7 +166,7 @@ func (h Host) buildStatusNotice(session journalSession) error {
 	}
 	s := SessionStatus{
 		Version: 1, Registry: target.Registry, DoorID: target.DoorID, RequestID: target.RequestID, Session: record.ID,
-		Door: h.Keys.Account.Bech32, Role: target.Role, State: record.State, Revision: e.Revision, Observed: e.Changed,
+		Door: h.Keys.Account.Bech32, Role: target.Role, Service: target.Service, State: record.State, Revision: e.Revision, Observed: e.Changed,
 		Deadline: record.Deadline, ChainAt: e.ChainAt, Degraded: e.Degraded, RevokedAt: e.RevokedAt,
 		RevokedBlock: e.RevokedBlock, ClosedAt: e.ClosedAt, Cause: e.Cause,
 	}
@@ -265,7 +270,7 @@ func readSessionStatus(card door.Card, keys *identity.Keys, message mailbox.Mess
 	if s.Version != 1 || s.Door != d.Account || s.DoorID != d.DoorID || s.Registry != d.Registry.Address ||
 		s.Revision == 0 || s.Observed <= 0 || s.Deadline <= 0 || s.RequestID == (common.Hash{}) ||
 		s.Session != SessionReference(s.DoorID, s.RequestID) || message.ID != sessionStatusID(s, message.Route) ||
-		(s.Role != "logs" && s.Role != "maintenance") || sha256.Sum256(signed.Signing) != d.SigningKey || card.VerifySigner(signed.Signing) != nil ||
+		!validSessionScope(s.Role, s.Service) || sha256.Sum256(signed.Signing) != d.SigningKey || card.VerifySigner(signed.Signing) != nil ||
 		(s.RevokedAt > 0) != (s.RevokedBlock != (common.Hash{})) || (s.State == lease.Closed) != (s.ClosedAt > 0) ||
 		protocol.Verify(s.Door, signed.Signing, sessionStatusPurpose, s, signed.Signature) != nil {
 		return SessionStatus{}, ErrInvalid
@@ -276,6 +281,13 @@ func readSessionStatus(card door.Card, keys *identity.Keys, message mailbox.Mess
 	default:
 		return SessionStatus{}, ErrInvalid
 	}
+}
+
+func validSessionScope(role, service string) bool {
+	if service != "" {
+		return role == "" && door.IsAlias(service)
+	}
+	return role == "logs" || role == "maintenance"
 }
 
 // LoadSessionStatus stores only sealed, verified revisions. It returns the

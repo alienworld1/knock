@@ -20,7 +20,7 @@ func main() { os.Exit(command.Run(root())) }
 
 func root() *cobra.Command {
 	var path string
-	root := &cobra.Command{Use: "knockd", Short: "Operate an Approval Door"}
+	root := &cobra.Command{Use: "knockd", Short: "Operate a Knock Door"}
 	root.PersistentFlags().StringVar(&path, "config", "", "Door configuration path")
 	root.AddCommand(mailboxCommand(),
 		&cobra.Command{
@@ -123,6 +123,12 @@ func root() *cobra.Command {
 				return command.Exit(1, lease.LaunchWorkload())
 			},
 		},
+		&cobra.Command{
+			Use: "private-http <slot>", Hidden: true, Args: cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return command.Exit(6, lease.ServeHTTP(args[0], cmd.OutOrStdout()))
+			},
+		},
 	)
 	return root
 }
@@ -131,7 +137,7 @@ func root() *cobra.Command {
 func reconcileSSH(ctx context.Context, config door.Config) (*lease.Host, error) {
 	call, cancel := context.WithTimeout(ctx, 75*time.Second)
 	defer cancel()
-	ssh, cleanup := lease.StartHost(call, config.WireGuardEndpoint)
+	ssh, cleanup := lease.StartHost(call, config.WireGuardEndpoint, config.Policy.Offer != nil)
 	if cleanup != nil {
 		if !errors.Is(cleanup, lease.ErrDoorLocked) {
 			command.Progress("SSH cleanup incomplete. Admissions remain closed.")

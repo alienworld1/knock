@@ -39,7 +39,7 @@ func root() *cobra.Command {
 	root.PersistentFlags().StringVar(&s.mailbox, "mailbox", "", "Mailbox origin for operator commands")
 	s.requestFlags(root)
 	root.AddCommand(tunnelCommand("up"), tunnelCommand("down"))
-	root.AddCommand(s.identityCommands(), s.doorCommands(), s.revokeCommand(), s.sessionsCommand(), s.requestsCommand(),
+	root.AddCommand(s.identityCommands(), s.doorCommands(), s.revokeCommand(), s.sessionsCommand(), s.requestsCommand(), s.paymentCommand(),
 		s.decisionCommand("approve", admission.Authorized), s.decisionCommand("deny", admission.Denied))
 	return root
 }
@@ -145,12 +145,19 @@ func (s *settings) doorCommands() *cobra.Command {
 					return command.Exit(8, json.NewEncoder(cmd.OutOrStdout()).Encode(result))
 				}
 				state := "Approval required"
+				if d.Mode == door.Metered {
+					state = "Purchase required"
+				}
 				if !d.Policy.Enabled {
 					state = "Disabled"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Door %s\n%s · Policy %d\nRoles %s · Limit %s\n",
-					d.Account, state, d.Policy.Version, strings.Join(d.Policy.Roles, ", "),
-					time.Duration(d.Policy.MaxDurationSeconds)*time.Second)
+				fmt.Fprintf(cmd.OutOrStdout(), "Door %s\n%s · Policy %d\n", d.Account, state, d.Policy.Version)
+				duration := time.Duration(d.Policy.MaxDurationSeconds) * time.Second
+				if offer := d.Policy.Offer; offer != nil {
+					fmt.Fprintf(cmd.OutOrStdout(), "Service %s · %s · %s test QOR\n", offer.Service, duration, formatQOR(offer.PriceUQOR))
+				} else {
+					fmt.Fprintf(cmd.OutOrStdout(), "Roles %s · Limit %s\n", strings.Join(d.Policy.Roles, ", "), duration)
+				}
 				if result.Revoked != nil {
 					fmt.Fprintf(cmd.OutOrStdout(), "Registry revoked %t\n", *result.Revoked)
 				}

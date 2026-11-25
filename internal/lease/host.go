@@ -35,6 +35,7 @@ type manifest struct {
 	Slot     slot
 	State    State
 	Cause    string
+	HTTP     bool
 }
 
 var ErrDoorLocked = errors.New("the Knock SSH Door lock is in use")
@@ -44,9 +45,10 @@ type Host struct {
 	endpoint netip.AddrPort
 	key      [32]byte
 	slots    [slotCount]bool
+	http     bool
 }
 
-func StartHost(ctx context.Context, value string) (_ *Host, err error) {
+func StartHost(ctx context.Context, value string, metered bool) (_ *Host, err error) {
 	endpoint, err := ValidateEndpoint(value)
 	if err != nil {
 		return nil, err
@@ -141,7 +143,7 @@ func StartHost(ctx context.Context, value string) (_ *Host, err error) {
 	if err := run(ctx, ipPath, "address", "replace", ServerIP+"/32", "dev", device); err != nil {
 		return nil, err
 	}
-	instance := &Host{lock: lock, endpoint: endpoint}
+	instance := &Host{lock: lock, endpoint: endpoint, http: metered}
 	if err := migrateManifest(); err != nil {
 		return nil, err
 	}
@@ -151,8 +153,14 @@ func StartHost(ctx context.Context, value string) (_ *Host, err error) {
 	if err := verifyNoOrphans(ctx); err != nil {
 		return nil, err
 	}
-	if err := instance.loadAccounts(); err != nil {
-		return nil, err
+	if metered {
+		for i := range instance.slots {
+			instance.slots[i] = true
+		}
+	} else {
+		if err := instance.loadAccounts(); err != nil {
+			return nil, err
+		}
 	}
 	peers, err := native(ctx, nil, wgPath, "show", device, "peers")
 	if err != nil || len(strings.Fields(string(peers))) != 0 {
@@ -362,8 +370,9 @@ func timer(id string) string { return "knock-expire-" + id }
 
 func (h *Host) Provision(ctx context.Context, g Grant) (conn Connection, err error) {
 	if !validID(g.ID) || g.Recheck == nil || g.Confirm == nil || g.WireGuard == ([32]byte{}) ||
-		(g.Role != "logs" && g.Role != "maintenance") || !time.Now().Before(g.Deadline) {
-		return conn, errors.New("invalid SSH grant")
+		g.HTTP != h.http || (g.HTTP && (g.Role != "" || g.SSH != ([32]byte{}))) ||
+		(!g.HTTP && g.Role != "logs" && g.Role != "maintenance") || !time.Now().Before(g.Deadline) {
+		return conn, errors.New("invalid connection grant")
 	}
 	lock, err := lockSlots(ctx)
 	if err != nil {
@@ -405,7 +414,7 @@ func (h *Host) Provision(ctx context.Context, g Grant) (conn Connection, err err
 	if listening, err := listener(ctx, assigned); err != nil || listening {
 		return conn, errors.Join(err, errors.New("couldn't verify an unused SSH listener address"))
 	}
-	m := manifest{ID: g.ID, Peer: g.WireGuard, Deadline: g.Deadline, Slot: assigned, State: Provisioning}
+	m := manifest{ID: g.ID, Peer: g.WireGuard, Deadline: g.Deadline, Slot: assigned, State: Provisioning, HTTP: g.HTTP}
 	if err := saveManifest(m); err != nil {
 		return conn, err
 	}
@@ -420,7 +429,11 @@ func (h *Host) Provision(ctx context.Context, g Grant) (conn Connection, err err
 	if err := setWG(ctx, conn.PSK[:], device, "peer", wgText(g.WireGuard[:]), "preshared-key", "/dev/stdin", "allowed-ips", assigned.clientIP()+"/32"); err != nil {
 		return conn, err
 	}
-	if err := startSSH(ctx, g, assigned); err != nil {
+	start := startSSH
+	if g.HTTP {
+		start = startHTTP
+	}
+	if err := start(ctx, g, assigned); err != nil {
 		return conn, err
 	}
 	if err := lock.Close(); err != nil {
@@ -613,6 +626,9 @@ func (h *Host) Observe(ctx context.Context, id string) (Observation, error) {
 	}
 	if m.State == Ready && time.Now().Before(m.Deadline) {
 		pattern := "^Accepted publickey for " + m.Slot.user() + " from " + regexp.QuoteMeta(m.Slot.clientIP()) + " port "
+		if m.HTTP {
+			pattern = "^Served private HTTP request from " + regexp.QuoteMeta(m.Slot.clientIP()) + "$"
+		}
 		out, err := native(ctx, nil, journalPath, "--no-pager", "--quiet", "--output=cat", "--lines=1",
 			"--unit="+unit(m.ID)+".service", "--grep="+pattern)
 		if err == nil && len(out) > 0 {

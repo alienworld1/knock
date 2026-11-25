@@ -26,8 +26,9 @@ const clientPath = "/usr/local/bin/knock"
 const sudoPath = "/usr/bin/sudo"
 
 type Streams struct {
-	In       io.Reader
-	Out, Err io.Writer
+	In          io.Reader
+	Out, Err    io.Writer
+	OnConnected func()
 }
 
 var ErrClientCleanup = errors.New("couldn't remove all local connection resources")
@@ -52,8 +53,10 @@ func Connect(ctx context.Context, wg []byte, key ed25519.PrivateKey, conn Connec
 	}
 	defer guard.Close()
 	defer func() { err = errors.Join(err, clientCleanup(cleanClientRuntime(dir))) }()
-	if err := writeClientSSH(dir, key, conn); err != nil {
-		return err
+	if !conn.HTTP {
+		if err := writeClientSSH(dir, key, conn); err != nil {
+			return err
+		}
 	}
 	payload := tunnelSpec{PrivateKey: [32]byte(wg), Peer: conn.ServerKey, PSK: conn.PSK, Endpoint: conn.Endpoint, Slot: conn.Slot}
 	raw, err := json.Marshal(payload)
@@ -76,6 +79,9 @@ func Connect(ctx context.Context, wg []byte, key ed25519.PrivateKey, conn Connec
 	clear(raw)
 	call, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
+	if conn.HTTP {
+		return connectHTTP(call, assigned, streams)
+	}
 	cmd := exec.CommandContext(call, "/usr/bin/ssh", "-F", "/dev/null", "-T",
 		"-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none",
 		"-o", "CertificateFile="+filepath.Join(dir, "client-cert.pub"),
