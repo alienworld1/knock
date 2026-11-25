@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"knock/internal/admission"
 	"knock/internal/chain"
 	"knock/internal/command"
 	"knock/internal/door"
@@ -24,17 +25,21 @@ type settings struct {
 	network string
 	cards   string
 	home    string
+	mailbox string
 }
 
 func main() { os.Exit(command.Run(root())) }
 
 func root() *cobra.Command {
 	s := &settings{home: command.Home()}
-	root := &cobra.Command{Use: "knock", Short: "Verify a Door on Diana"}
+	root := &cobra.Command{Use: "knock", Short: "Request or review private access on Diana"}
 	root.PersistentFlags().StringVar(&s.profile, "profile", "", "encrypted identity profile")
 	root.PersistentFlags().StringVar(&s.network, "network", "", "pinned registry configuration")
 	root.PersistentFlags().StringVar(&s.cards, "cards", "", "directory containing signed Door Cards")
-	root.AddCommand(s.identityCommands(), s.doorCommands(), s.revokeCommand())
+	root.PersistentFlags().StringVar(&s.mailbox, "mailbox", "", "Mailbox origin for operator commands")
+	s.requestFlags(root)
+	root.AddCommand(s.identityCommands(), s.doorCommands(), s.revokeCommand(), s.requestsCommand(),
+		s.decisionCommand("approve", admission.Authorized), s.decisionCommand("deny", admission.Denied))
 	return root
 }
 
@@ -79,6 +84,7 @@ func (s *settings) identityCommands() *cobra.Command {
 			},
 		},
 	)
+	identityCommand.AddCommand(s.publishRecipientCommand())
 	return identityCommand
 }
 
@@ -185,19 +191,9 @@ func (s *settings) revokeCommand() *cobra.Command {
 }
 
 func (s *settings) withDoor(cmd *cobra.Command, target string, use func(context.Context, *chain.EVM, door.Card) error) error {
-	var pin struct {
-		Registry chain.Registry `json:"registry"`
-	}
-	network := s.network
-	cards := s.cards
-	if network == "" && s.home != "" {
-		network = filepath.Join(s.home, "network.json")
-	}
-	if cards == "" && s.home != "" {
-		cards = filepath.Join(s.home, "cards")
-	}
-	if err := door.ReadConfig(network, &pin); err != nil {
-		return command.Exit(2, fmt.Errorf("load registry configuration: %w", err))
+	pin, err := s.registry()
+	if err != nil {
+		return command.Exit(2, err)
 	}
 	var alias *door.Alias
 	if !strings.HasPrefix(target, "qor1") {
@@ -208,7 +204,7 @@ func (s *settings) withDoor(cmd *cobra.Command, target string, use func(context.
 		target = record.Account
 		alias = &record
 	}
-	card, err := door.ReadCard(cards, target)
+	card, err := door.ReadCard(s.cardsDirectory(), target)
 	if err != nil {
 		return command.Exit(3, err)
 	}
@@ -223,8 +219,29 @@ func (s *settings) withDoor(cmd *cobra.Command, target string, use func(context.
 		return command.Exit(3, err)
 	}
 	defer evm.Close()
-	if err := card.Verify(ctx, native, evm, pin.Registry, target); err != nil {
+	if err := card.Verify(ctx, native, evm, pin, target); err != nil {
 		return command.Exit(3, err)
 	}
 	return use(ctx, evm, card)
+}
+
+func (s *settings) registry() (chain.Registry, error) {
+	var pin struct {
+		Registry chain.Registry `json:"registry"`
+	}
+	network := s.network
+	if network == "" && s.home != "" {
+		network = filepath.Join(s.home, "network.json")
+	}
+	if err := door.ReadConfig(network, &pin); err != nil {
+		return chain.Registry{}, fmt.Errorf("load registry configuration: %w", err)
+	}
+	return pin.Registry, nil
+}
+
+func (s *settings) cardsDirectory() string {
+	if s.cards == "" && s.home != "" {
+		return filepath.Join(s.home, "cards")
+	}
+	return s.cards
 }

@@ -19,7 +19,7 @@ func root() *cobra.Command {
 	var path string
 	root := &cobra.Command{Use: "knockd", Short: "Operate an Approval Door"}
 	root.PersistentFlags().StringVar(&path, "config", "", "Door configuration path")
-	root.AddCommand(
+	root.AddCommand(mailboxCommand(),
 		&cobra.Command{
 			Use: "register", Short: "Commit the Door policy and publish its signed Card", Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
@@ -50,7 +50,7 @@ func root() *cobra.Command {
 			},
 		},
 		&cobra.Command{
-			Use: "serve", Short: "Verify and monitor a closed Door", Args: cobra.NoArgs,
+			Use: "serve", Short: "Verify a Door and receive private requests", Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				config, err := door.LoadConfig(path)
 				if err != nil {
@@ -61,6 +61,9 @@ func root() *cobra.Command {
 					return command.Exit(8, err)
 				}
 				defer keys.Clear()
+				if config.Mailbox != "" && config.Policy.Enabled {
+					return serveAdmission(cmd, config, keys)
+				}
 				return command.Exit(3, door.Serve(cmd.Context(), config, keys, command.Progress))
 			},
 		},

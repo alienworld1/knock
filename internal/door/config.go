@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"knock/internal/chain"
+	"knock/internal/protocol"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -22,6 +23,8 @@ type Config struct {
 	OwnerProfile string         `json:"ownerProfile"`
 	DoorProfile  string         `json:"doorProfile"`
 	Cards        string         `json:"cards"`
+	Mailbox      string         `json:"mailbox,omitempty"`
+	State        string         `json:"state,omitempty"`
 	Policy       Policy         `json:"policy"`
 }
 
@@ -56,10 +59,15 @@ func LoadConfig(path string) (Config, error) {
 	if _, err := ParseAccount(config.Account); err != nil {
 		return config, fmt.Errorf("Door: %w", err)
 	}
+	if config.Mailbox != "" {
+		if _, err := protocol.Origin(config.Mailbox); err != nil {
+			return config, err
+		}
+	}
 	if _, err := config.Policy.ChainPolicy(); err != nil {
 		return config, err
 	}
-	for _, value := range []*string{&config.OwnerProfile, &config.DoorProfile, &config.Cards} {
+	for _, value := range []*string{&config.OwnerProfile, &config.DoorProfile, &config.Cards, &config.State} {
 		if *value != "" && !filepath.IsAbs(*value) {
 			*value = filepath.Join(filepath.Dir(path), *value)
 		}

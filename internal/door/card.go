@@ -12,6 +12,7 @@ import (
 
 	"knock/internal/chain"
 	"knock/internal/identity"
+	"knock/internal/protocol"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/fxamacker/cbor/v2"
@@ -43,6 +44,7 @@ type Details struct {
 	PolicyCommitment common.Hash            `json:"policyCommitment"`
 	Mode             string                 `json:"mode"`
 	Inbox            common.Hash            `json:"inbox"`
+	Mailbox          string                 `json:"mailbox,omitempty"`
 	Issued           int64                  `json:"issued"`
 	Expires          int64                  `json:"expires"`
 }
@@ -120,7 +122,7 @@ func NewCard(config Config, owner string, keys *identity.Keys, recipient qoresea
 		Version: 1, NativeChain: chain.NativeID, EVMChain: chain.EVMID, Registry: config.Registry, DoorID: config.DoorID,
 		Account: keys.Account.Bech32, Owner: owner, SigningKey: sha256.Sum256(keys.Signing.PublicKey),
 		KEMKey: sha256.Sum256(keys.Recipient.MlkemPublicKey), Recipient: recipient,
-		Policy: config.Policy, PolicyCommitment: policy.Commitment, Mode: "approval", Inbox: config.DoorID,
+		Policy: config.Policy, PolicyCommitment: policy.Commitment, Mode: "approval", Inbox: config.DoorID, Mailbox: config.Mailbox,
 		Issued: now.Unix(), Expires: now.Add(lifetime).Unix(),
 	}
 	data, err := details.signBytes()
@@ -166,6 +168,11 @@ func (c Card) Verify(ctx context.Context, n *chain.Native, e *chain.EVM, registr
 	if d.Version != 1 || d.NativeChain != chain.NativeID || d.EVMChain != chain.EVMID || d.Registry != registry ||
 		d.DoorID == (common.Hash{}) || d.Inbox != d.DoorID || d.Mode != "approval" || d.Account != account {
 		return errors.New("Door Card does not match the expected identity, network or registry")
+	}
+	if d.Mailbox != "" {
+		if _, err := protocol.Origin(d.Mailbox); err != nil {
+			return err
+		}
 	}
 	if d.Issued < now-int64(lifetime/time.Second) || d.Issued > now+5 || d.Expires <= now ||
 		d.Expires != d.Issued+int64(lifetime/time.Second) {

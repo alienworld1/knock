@@ -140,7 +140,7 @@ func (e *EVM) Binding(ctx context.Context, account qoresign.AccountAddress, key 
 	}
 	if !status.Registered || !status.Proven || status.Algorithm != qoresign.AlgorithmMLDSA87 ||
 		!bytes.Equal(status.PublicKey, key) {
-		return errors.New("Diana native and EVM signing key bindings differ")
+		return fmt.Errorf("%w: native and EVM signing keys differ", ErrIdentityBinding)
 	}
 	return nil
 }

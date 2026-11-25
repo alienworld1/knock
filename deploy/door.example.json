@@ -9,6 +9,8 @@
   "ownerProfile": "owner.age",
   "doorProfile": "door.age",
   "cards": "cards",
+  "mailbox": "http://127.0.0.1:8180",
+  "state": "/var/lib/knock/admission.db",
   "policy": {
     "version": 1,
     "enabled": true,

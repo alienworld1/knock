@@ -40,7 +40,10 @@ func Diana() *Native {
 	return &Native{http: client, sign: &signnet.Client{HTTP: client, REST: REST}}
 }
 
-var errNotFound = errors.New("chain record not found")
+var (
+	errNotFound        = errors.New("chain record not found")
+	ErrIdentityBinding = errors.New("Diana identity binding is invalid or stale")
+)
 
 func (n *Native) get(ctx context.Context, url string, output any) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -93,35 +96,44 @@ func (n *Native) SigningKey(ctx context.Context, account string) ([]byte, error)
 	if !record.Registered || !record.PossessionProven || record.KeyType != "hybrid" ||
 		record.AlgorithmID != qoresign.AlgorithmMLDSA87 || len(record.PublicKey) != qoresign.MLDSA87PublicKeyLength ||
 		qoresign.IsDegeneratePqPublicKey(record.PublicKey) {
-		return nil, errors.New("account has no proven hybrid signing key")
+		return nil, fmt.Errorf("%w: account has no proven hybrid signing key", ErrIdentityBinding)
 	}
 	return record.PublicKey, nil
 }
 
 func (n *Native) Recipient(ctx context.Context, card qoreseal.RecipientCard, account string) (qoreseal.SealRecipient, error) {
+	_, recipient, err := n.RecipientBinding(ctx, card, account)
+	return recipient, err
+}
+
+func (n *Native) RecipientBinding(ctx context.Context, card qoreseal.RecipientCard, account string) ([]byte, qoreseal.SealRecipient, error) {
 	height, err := n.Head(ctx)
 	if err != nil {
-		return qoreseal.SealRecipient{}, err
+		return nil, qoreseal.SealRecipient{}, err
 	}
 	issued, err := time.Parse(time.RFC3339, card.IssuedAt)
 	if err != nil || issued.After(time.Now().Add(5*time.Second)) {
-		return qoreseal.SealRecipient{}, errors.New("recipient card has an invalid issue time")
+		return nil, qoreseal.SealRecipient{}, fmt.Errorf("%w: recipient card has an invalid issue time", ErrIdentityBinding)
 	}
 	public, err := n.SigningKey(ctx, account)
 	if err != nil {
-		return qoreseal.SealRecipient{}, err
+		return nil, qoreseal.SealRecipient{}, err
 	}
 	recipient, err := (&sealnet.Client{REST: REST, HTTP: n.http}).FetchKemKey(ctx, account)
 	if err != nil {
-		return qoreseal.SealRecipient{}, err
+		return nil, qoreseal.SealRecipient{}, err
 	}
 	if !recipient.Registered || recipient.Address != account || recipient.AlgorithmID != qoreseal.AlgorithmMLKEM1024 ||
 		recipient.RegisteredHeight <= 0 || uint64(recipient.RegisteredHeight) > height {
-		return qoreseal.SealRecipient{}, errors.New("account has no verified ML-KEM-1024 key at the observed Diana height")
+		return nil, qoreseal.SealRecipient{}, fmt.Errorf("%w: account has no verified ML-KEM-1024 key at the observed Diana height", ErrIdentityBinding)
 	}
-	return qoreseal.VerifyRecipientCard(qoreseal.VerifyRecipientCardArgs{
+	verified, err := qoreseal.VerifyRecipientCard(qoreseal.VerifyRecipientCardArgs{
 		ChainID: NativeID, Address: account, Card: card, PqPublicKey: public, MlkemPublicKey: recipient.PublicKey,
 	})
+	if err != nil {
+		return nil, verified, fmt.Errorf("%w: recipient card could not be verified", ErrIdentityBinding)
+	}
+	return public, verified, nil
 }
 
 func (n *Native) Register(ctx context.Context, keys *identity.Keys, report func(string)) (qoreseal.RecipientCard, error) {

@@ -77,13 +77,18 @@ func (e *EVM) Door(ctx context.Context, registry Registry, id common.Hash) (Door
 	if err != nil {
 		return Door{}, common.Hash{}, err
 	}
+	state, err := e.readDoor(ctx, registry, block, id)
+	return state, block, err
+}
+
+func (e *EVM) readDoor(ctx context.Context, registry Registry, block, id common.Hash) (Door, error) {
 	values, err := e.read(ctx, registry, block, "door", id)
 	if err != nil {
-		return Door{}, common.Hash{}, err
+		return Door{}, err
 	}
 	// The tuple shape comes from the pinned registry ABI and is checked during ABI decoding.
 	door := *abi.ConvertType(values[0], new(Door)).(*Door)
-	return door, block, nil
+	return door, nil
 }
 
 func (e *EVM) Revoked(ctx context.Context, registry Registry, doorID, session common.Hash) (bool, error) {
@@ -91,6 +96,24 @@ func (e *EVM) Revoked(ctx context.Context, registry Registry, doorID, session co
 	if err != nil {
 		return false, err
 	}
+	return e.readRevoked(ctx, registry, block, doorID, session)
+}
+
+// CanAdmit observes policy and revocation at the same finalized block.
+func (e *EVM) CanAdmit(ctx context.Context, registry Registry, doorID, session common.Hash, version uint64, commitment common.Hash) (bool, error) {
+	block, err := e.registryBlock(ctx, registry)
+	if err != nil {
+		return false, err
+	}
+	state, err := e.readDoor(ctx, registry, block, doorID)
+	if err != nil || state.Version != version || state.Policy.Commitment != commitment || !state.Policy.Enabled {
+		return false, err
+	}
+	revoked, err := e.readRevoked(ctx, registry, block, doorID, session)
+	return err == nil && !revoked, err
+}
+
+func (e *EVM) readRevoked(ctx context.Context, registry Registry, block, doorID, session common.Hash) (bool, error) {
 	values, err := e.read(ctx, registry, block, "revoked", doorID, session)
 	if err != nil {
 		return false, err
