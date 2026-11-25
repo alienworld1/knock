@@ -1,0 +1,20 @@
+{
+  "registry": {
+    "address": "0x0000000000000000000000000000000000000000",
+    "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "doorId": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "owner": "qor1...",
+  "account": "qor1...",
+  "ownerProfile": "owner.age",
+  "doorProfile": "door.age",
+  "cards": "cards",
+  "policy": {
+    "version": 1,
+    "enabled": true,
+    "maxDurationSeconds": 900,
+    "approversCanRevoke": true,
+    "approvers": ["qor1..."],
+    "roles": ["logs", "maintenance"]
+  }
+}

@@ -1,0 +1,14 @@
+AGENTS.md
+agent-docs
+
+/bin/
+/contracts/cache/
+/contracts/out/
+/contracts/broadcast/
+*.age
+*.cred
+.env
+.env.*
+/door.json
+/network.json
+/cards/
