@@ -33,7 +33,13 @@ func main() { os.Exit(command.Run(root())) }
 
 func root() *cobra.Command {
 	s := &settings{home: command.Home()}
-	root := &cobra.Command{Use: "knock", Short: "Request or review private access on Diana"}
+	root := &cobra.Command{
+		Use:   "knock",
+		Short: "Request or review private access on Diana",
+		Example: `  knock validator-ops --ssh --role logs --for 15m --reason -
+  knock private-status --tunnel --pay 2m
+  knock console`,
+	}
 	root.PersistentFlags().StringVar(&s.profile, "profile", "", "encrypted identity profile")
 	root.PersistentFlags().StringVar(&s.network, "network", "", "pinned registry configuration")
 	root.PersistentFlags().StringVar(&s.cards, "cards", "", "directory containing signed Door Cards")
@@ -65,6 +71,7 @@ func (s *settings) identityCommands() *cobra.Command {
 					return command.Exit(8, err)
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), account.Bech32)
+				command.Info(cmd.ErrOrStderr(), "Fund this address on Diana testnet, then run knock identity register.")
 				return nil
 			},
 		},
@@ -108,6 +115,7 @@ func (s *settings) doorCommands() *cobra.Command {
 					return command.Exit(8, err)
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "%s %s\n", alias, data.Account)
+				command.OK(cmd.ErrOrStderr(), fmt.Sprintf("Trusted %s as %s", data.Account, alias))
 				return nil
 			})
 		},
@@ -152,15 +160,28 @@ func (s *settings) doorCommands() *cobra.Command {
 				if !d.Policy.Enabled {
 					state = "Disabled"
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Door %s\n%s · Policy %d\n", d.Account, state, d.Policy.Version)
+				out := cmd.OutOrStdout()
+				modeLabel := "Approval"
+				if d.Mode == door.Metered {
+					modeLabel = "Metered"
+				}
+				command.Field(out, "Door", d.Account)
+				command.Field(out, "Status", state)
+				command.Field(out, "Policy", fmt.Sprintf("v%d", d.Policy.Version))
+				command.Field(out, "Mode", modeLabel)
 				duration := time.Duration(d.Policy.MaxDurationSeconds) * time.Second
 				if offer := d.Policy.Offer; offer != nil {
-					fmt.Fprintf(cmd.OutOrStdout(), "Service %s · %s · %s test QOR\n", offer.Service, duration, formatQOR(offer.PriceUQOR))
+					command.Field(out, "Service", offer.Service)
+					command.Field(out, "Duration", duration.String())
+					command.Field(out, "Price", formatQOR(offer.PriceUQOR)+" test QOR")
 				} else {
-					fmt.Fprintf(cmd.OutOrStdout(), "Roles %s · Limit %s\n", strings.Join(d.Policy.Roles, ", "), duration)
+					command.Field(out, "Roles", strings.Join(d.Policy.Roles, ", "))
+					command.Field(out, "Limit", duration.String())
 				}
+				command.Field(out, "Signing key", common.Hash(d.SigningKey).Hex())
+				command.Field(out, "Registry", d.Registry.Address.Hex())
 				if result.Revoked != nil {
-					fmt.Fprintf(cmd.OutOrStdout(), "Registry revoked %t\n", *result.Revoked)
+					command.Field(out, "Registry revoked", fmt.Sprintf("%t", *result.Revoked))
 				}
 				return nil
 			})

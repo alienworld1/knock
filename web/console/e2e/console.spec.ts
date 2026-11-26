@@ -5,7 +5,15 @@ const requestId = "0x" + "9".repeat(64);
 const sessionId = "0x" + "1".repeat(64);
 const account = "qor1" + "a".repeat(42);
 
-async function fixture(page: Page, { denied = false, empty = false } = {}) {
+async function fixture(
+  page: Page,
+  {
+    denied = false,
+    empty = false,
+    pendingRevoke = false,
+    withReceipt = false,
+  } = {},
+) {
   const now = Math.floor(Date.now() / 1000);
   let delivery = "";
   const request = {
@@ -16,7 +24,8 @@ async function fixture(page: Page, { denied = false, empty = false } = {}) {
     durationSeconds: 180,
     deadline: new Date((now + 120) * 1000).toISOString(),
   };
-  let active = true;
+  let phase: "active" | "pending" | "closed" = "active";
+  let sessionPolls = 0;
   await page.route("**/api/**", async (route) => {
     const requestPath = new URL(route.request().url()).pathname;
     const json = (data: unknown) => route.fulfill({ json: data });
@@ -38,7 +47,10 @@ async function fixture(page: Page, { denied = false, empty = false } = {}) {
           policyVersion: "1",
           limit: 300,
           roles: ["logs"],
+          approvers: [account],
+          approversCanRevoke: true,
           canReview: true,
+          canRevoke: true,
           canRotate: true,
           owner: account,
           signingKey: requestId,
@@ -63,40 +75,79 @@ async function fixture(page: Page, { denied = false, empty = false } = {}) {
           message: "Decision sent. Waiting for the Door to verify it.",
         });
       case "/api/revoke":
-        active = false;
+        phase = pendingRevoke ? "pending" : "closed";
+        sessionPolls = 0;
         return json({
           message:
             "Registry revocation confirmed. Waiting for the Door to verify closure.",
         });
-      case "/api/sessions":
+      case "/api/sessions": {
+        if (phase === "pending") {
+          sessionPolls++;
+          if (sessionPolls > 1) phase = "closed";
+        }
+        const closed = phase === "closed";
         return json({
           sessions: [
             {
               sessionId,
-              state: active ? "Active" : "Closed",
+              state: closed ? "Closed" : "Active",
               chainMonitoring: "Available",
-              revocable: active,
+              revocation:
+                phase === "pending"
+                  ? "Registry revocation confirmed"
+                  : closed
+                    ? "Enforced by the Door"
+                    : undefined,
+              revocable: phase === "active",
               lastVerified: {
                 requestId,
-                state: active ? "Active" : "Closed",
+                state: closed ? "Closed" : "Active",
                 role: "logs",
                 issued: now - 10,
                 observed: now,
                 deadline: now + 120,
                 revokedBlock: requestId,
-                closedAt: active ? undefined : now,
-                cause: active ? undefined : "Revoked",
+                closedAt: closed ? now : undefined,
+                cause: closed ? "Revoked" : undefined,
               },
             },
           ],
         });
+      }
       case "/api/history":
         return denied
           ? route.fulfill({
               status: 503,
               json: { error: "Receipt updates unavailable." },
             })
-          : json({ receipts: [] });
+          : json({
+              receipts: withReceipt
+                ? [
+                    {
+                      ID: "0x" + "7".repeat(64),
+                      Epoch: 1,
+                      Request: requestId,
+                      Session: sessionId,
+                      Requester: account,
+                      Approver: account,
+                      Purchase: "0x" + "0".repeat(64),
+                      ConsumptionTx: "0x" + "0".repeat(64),
+                      Role: "logs",
+                      Service: "",
+                      Cause: "Revoked",
+                      Cleanup: "Closed",
+                      CleanupObservedAt: now - 5,
+                      ActiveObservedAt: now - 15,
+                      TerminationObservedAt: now - 6,
+                      ActualSeconds: 9,
+                      RequestedSeconds: 180,
+                      RevocationBlock: "0x" + "8".repeat(64),
+                      Corrects: "0x" + "0".repeat(64),
+                    },
+                  ]
+                : [],
+            });
       default:
         return route.fulfill({
           status: 404,
@@ -157,31 +208,37 @@ test("operator workflow, keyboard confirmation and real routes", async ({
   await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
 });
 
-test("both themes pass axe and the 320 px layout stays within the viewport", async ({
+test("both themes pass axe across Doors, Sessions, and History at 320 px", async ({
   page,
 }) => {
-  await fixture(page);
+  await fixture(page, { withReceipt: true });
   await page.setViewportSize({ width: 320, height: 900 });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await expect(
     page.getByRole("heading", { name: "validator-ops" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: /Waiting for decision/ }).click();
+  await expect(page.getByText("Check host uptime.")).toBeVisible();
+
   for (const theme of ["dark", "light"]) {
     await page.getByLabel("Theme").selectOption(theme);
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-    await page.getByRole("button", { name: /Waiting for decision/ }).click();
-    await expect(page.getByText("Check host uptime.")).toBeVisible();
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - innerWidth,
-    );
-    expect(overflow).toBeLessThanOrEqual(0);
-    const result = await new AxeBuilder({ page })
-      .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
-      .analyze();
-    expect(result.violations).toEqual([]);
+    for (const nav of ["Doors", "Sessions", "History"]) {
+      await page.getByRole("link", { name: nav }).click();
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - innerWidth,
+      );
+      expect(overflow).toBeLessThanOrEqual(0);
+      const result = await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+        .analyze();
+      expect(result.violations).toEqual([]);
+    }
+    await page.getByRole("link", { name: "Doors" }).click();
   }
   await page.setViewportSize({ width: 640, height: 960 });
+  await page.getByRole("button", { name: /Waiting for decision/ }).click();
   await page.locator("body").evaluate((body) => {
     body.style.zoom = "2";
   });
@@ -196,6 +253,40 @@ test("both themes pass axe and the 320 px layout stays within the viewport", asy
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
   await page.getByLabel("Theme").selectOption("system");
   await expect(page.locator("html")).toHaveAttribute("data-theme", "system");
+});
+
+test("pending revocation transitions to enforced closure and History auto-selects receipts", async ({
+  page,
+}) => {
+  await fixture(page, { pendingRevoke: true, withReceipt: true });
+  await page.goto("/sessions");
+  const session = page.getByRole("article");
+  await expect(session.getByRole("status")).toHaveText("Active");
+  await page.getByRole("button", { name: "Revoke access" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Revoke access" })
+    .click();
+  await expect(session.getByRole("status")).toHaveText("Revocation pending");
+  await expect(page.getByRole("button", { name: "Revoke access" })).toHaveCount(
+    0,
+  );
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(session.getByRole("status")).toHaveText("Revocation enforced");
+
+  await page.getByRole("link", { name: "History" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Receipt details" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Firewall, WireGuard peer, SSH authorization, contained workloads",
+    ),
+  ).toBeVisible();
+  await page.getByText("Verification details").click();
+  await expect(
+    page.getByRole("button", { name: "Copy receipt ID" }),
+  ).toBeVisible();
 });
 
 test("denial delivery, empty Doors and unavailable History are distinct", async ({

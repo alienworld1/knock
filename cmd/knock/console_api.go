@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"net/http"
@@ -99,28 +100,35 @@ func (c *operatorConsole) inspectDoor(w http.ResponseWriter, r *http.Request) {
 	err := c.settings.withVerifiedDoor(r.Context(), r.URL.Query().Get("door"), func(_ context.Context, _ *chain.EVM, card door.Card) error {
 		d := card.Details
 		account := c.keys.Account.Bech32
-		var service, price string
+		var service, price, beneficiary string
 		if offer := d.Policy.Offer; offer != nil {
-			service, price = offer.Service, formatQOR(offer.PriceUQOR)
+			service, price, beneficiary = offer.Service, formatQOR(offer.PriceUQOR), offer.Beneficiary
 		}
 		consoleJSON(w, 200, struct {
-			Mode          string         `json:"mode"`
-			Enabled       bool           `json:"enabled"`
-			PolicyVersion string         `json:"policyVersion"`
-			Limit         uint64         `json:"limit"`
-			Roles         []string       `json:"roles"`
-			Service       string         `json:"service,omitempty"`
-			Price         string         `json:"price,omitempty"`
-			CanReview     bool           `json:"canReview"`
-			CanRotate     bool           `json:"canRotate"`
-			Owner         string         `json:"owner"`
-			SigningKey    common.Hash    `json:"signingKey"`
-			Registry      common.Address `json:"registry"`
-			CardExpires   int64          `json:"cardExpires"`
+			Mode               string         `json:"mode"`
+			Enabled            bool           `json:"enabled"`
+			PolicyVersion      string         `json:"policyVersion"`
+			Limit              uint64         `json:"limit"`
+			Roles              []string       `json:"roles"`
+			Approvers          []string       `json:"approvers,omitempty"`
+			ApproversCanRevoke bool           `json:"approversCanRevoke"`
+			Service            string         `json:"service,omitempty"`
+			Price              string         `json:"price,omitempty"`
+			Beneficiary        string         `json:"beneficiary,omitempty"`
+			CanReview          bool           `json:"canReview"`
+			CanRevoke          bool           `json:"canRevoke"`
+			CanRotate          bool           `json:"canRotate"`
+			Owner              string         `json:"owner"`
+			SigningKey         common.Hash    `json:"signingKey"`
+			Registry           common.Address `json:"registry"`
+			CardExpires        int64          `json:"cardExpires"`
 		}{
 			Mode: d.Mode, Enabled: d.Policy.Enabled, PolicyVersion: strconv.FormatUint(d.Policy.Version, 10),
-			Limit: d.Policy.MaxDurationSeconds, Roles: d.Policy.Roles, Service: service, Price: price,
+			Limit: d.Policy.MaxDurationSeconds, Roles: d.Policy.Roles,
+			Approvers: d.Policy.Approvers, ApproversCanRevoke: d.Policy.ApproversCanRevoke,
+			Service: service, Price: price, Beneficiary: beneficiary,
 			CanReview: d.Policy.Enabled && slices.Contains(d.Policy.Approvers, account),
+			CanRevoke: d.Policy.Enabled && canRevoke(card, account),
 			CanRotate: d.Policy.Enabled && d.Owner == account, Owner: d.Owner,
 			SigningKey: d.SigningKey, Registry: d.Registry.Address, CardExpires: d.Expires,
 		})
@@ -288,13 +296,35 @@ func (c *operatorConsole) sessions(w http.ResponseWriter, r *http.Request) {
 	})
 	items := make([]consoleSession, 0, len(records))
 	now := time.Now()
-	slices.SortFunc(records, func(a, b admission.SessionStatus) int { return strings.Compare(a.Session.Hex(), b.Session.Hex()) })
+	sessionRank := func(record admission.SessionStatus) int {
+		switch record.State {
+		case lease.CleanupIncomplete:
+			return 0
+		case lease.Closed:
+			return 2
+		default:
+			return 1
+		}
+	}
+	slices.SortFunc(records, func(a, b admission.SessionStatus) int {
+		if rank := cmp.Compare(sessionRank(a), sessionRank(b)); rank != 0 {
+			return rank
+		}
+		if obs := cmp.Compare(b.Observed, a.Observed); obs != 0 {
+			return obs
+		}
+		return strings.Compare(a.Session.Hex(), b.Session.Hex())
+	})
 	for _, record := range records {
 		display := displaySession(now, &record, loadErr != nil)
 		progress, _ := c.revocations.Load(record.Session)
 		revokeState, _ := progress.(string)
 		if record.RevokedAt != 0 {
-			revokeState = "Revocation observed by the Door"
+			if record.ClosedAt != 0 && record.Cause == "Revoked" {
+				revokeState = "Enforced by the Door"
+			} else {
+				revokeState = "Revocation observed by the Door"
+			}
 		}
 		items = append(items, consoleSession{display, revokeState, err == nil && revocable && revokeState == "" &&
 			(display.State == string(lease.Ready) || display.State == string(lease.Active))})

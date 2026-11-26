@@ -4,7 +4,6 @@ import {
   rows,
   section,
   sectionHeading,
-  status,
 } from "../components/classes";
 import { useState } from "react";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
@@ -13,8 +12,12 @@ import type { Confirm } from "../components/ConfirmDialog";
 import { Notice } from "../components/Notice";
 import { ReceiptDetail } from "../components/ReceiptDetail";
 import { Rotation } from "../components/Rotation";
+import { StatusBadge } from "../components/Status";
 import { short, utc } from "../format";
 import { useRemote } from "../useRemote";
+
+const zero = /^0x0+$/;
+
 export function History({
   door,
   card,
@@ -30,7 +33,9 @@ export function History({
   const items = (result.data?.receipts || []).toSorted(
     (a, b) => b.CleanupObservedAt - a.CleanupObservedAt,
   );
-  const selected = items.find((item) => item.ID === selection);
+  const selected = items.find((item) => item.ID === selection) ?? items[0];
+  const latestEpoch = items.reduce((max, item) => Math.max(max, item.Epoch), 0);
+
   return (
     <section className={section}>
       <div className={sectionHeading}>
@@ -46,40 +51,57 @@ export function History({
       ) : null}
       {items.length ? (
         <ul className={rows}>
-          {items.map((item) => (
-            <li key={item.ID}>
-              <button
-                type="button"
-                className={row}
-                aria-pressed={selection === item.ID}
-                onClick={() => setSelection(item.ID)}
-              >
-                <span>
-                  <span className={rowTitle}>
-                    {item.Service || "SSH · " + item.Role}
-                  </span>
-                  <code>{short(item.ID)}</code>
-                </span>
-                <time
-                  dateTime={new Date(
-                    item.CleanupObservedAt * 1000,
-                  ).toISOString()}
+          {items.map((item) => {
+            const corrected =
+              !zero.test(item.Corrects) && Boolean(item.Corrects);
+            return (
+              <li key={item.ID}>
+                <button
+                  type="button"
+                  className={row}
+                  aria-pressed={selected?.ID === item.ID}
+                  onClick={() => setSelection(item.ID)}
                 >
-                  {utc(item.CleanupObservedAt)}
-                </time>
-                <span className={status}>
-                  {item.Cleanup === "Closed"
-                    ? "Closure verified"
-                    : "Cleanup incomplete"}
-                </span>
-              </button>
-            </li>
-          ))}
+                  <span>
+                    <span className={rowTitle}>
+                      {item.Service
+                        ? "Private service · " + item.Service
+                        : "SSH · " + item.Role}
+                    </span>
+                    <code>
+                      {short(item.ID)} · Epoch {item.Epoch}
+                      {corrected ? " · Corrected" : ""}
+                    </code>
+                  </span>
+                  <time
+                    dateTime={new Date(
+                      item.CleanupObservedAt * 1000,
+                    ).toISOString()}
+                  >
+                    {utc(item.CleanupObservedAt)}
+                  </time>
+                  <StatusBadge
+                    label={
+                      item.Cleanup === "Closed"
+                        ? "Closure verified"
+                        : "Cleanup incomplete"
+                    }
+                    tone={item.Cleanup === "Closed" ? "success" : "danger"}
+                  />
+                </button>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
       {selected ? <ReceiptDetail receipt={selected} /> : null}
       {card?.canRotate ? (
-        <Rotation door={door} confirm={confirm} refresh={result.retry} />
+        <Rotation
+          door={door}
+          latestEpoch={latestEpoch}
+          confirm={confirm}
+          refresh={result.retry}
+        />
       ) : null}
     </section>
   );

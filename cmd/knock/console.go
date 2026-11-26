@@ -61,7 +61,9 @@ func (s *settings) consoleCommand() *cobra.Command {
 			launchURL := server.origin + "/#" + server.bootstrap
 			result := make(chan error, 1)
 			go func() { result <- httpServer.Serve(listener) }()
-			fmt.Fprintln(cmd.ErrOrStderr(), "Open this one-time link in your browser. Press Ctrl+C here to close the console.")
+			errOut := cmd.ErrOrStderr()
+			command.OK(errOut, "Unlocked operator "+keys.Account.Bech32)
+			command.Info(errOut, "Open this one-time link in your browser. Press Ctrl+C here to close the console.")
 			fmt.Fprintln(cmd.OutOrStdout(), launchURL)
 			select {
 			case err := <-result:
@@ -126,6 +128,8 @@ func (s *consoleServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			page := r.Clone(r.Context())
 			page.URL.Path = "/"
 			s.files.ServeHTTP(w, page)
+		case "/favicon.svg":
+			s.files.ServeHTTP(w, r)
 		default:
 			if strings.HasPrefix(r.URL.Path, "/assets/") {
 				s.files.ServeHTTP(w, r)

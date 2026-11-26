@@ -5,9 +5,13 @@ export type DoorPolicy = {
   policyVersion: string;
   limit: number;
   roles: string[] | null;
+  approvers?: string[];
+  approversCanRevoke?: boolean;
   service?: string;
   price?: string;
+  beneficiary?: string;
   canReview: boolean;
+  canRevoke?: boolean;
   canRotate: boolean;
   owner: string;
   signingKey: string;
@@ -106,7 +110,12 @@ export const policy = (v: unknown): v is DoorPolicy =>
   booleans(v, "enabled", "canReview", "canRotate") &&
   strings(v, "policyVersion", "owner", "signingKey", "registry") &&
   numbers(v, "limit", "cardExpires") &&
-  optional(v, "string", "price", "service") &&
+  optional(v, "string", "price", "service", "beneficiary") &&
+  (v.approversCanRevoke === undefined ||
+    typeof v.approversCanRevoke === "boolean") &&
+  (v.canRevoke === undefined || typeof v.canRevoke === "boolean") &&
+  (v.approvers === undefined ||
+    array(v.approvers, (a): a is string => typeof a === "string")) &&
   (v.mode !== "metered" || strings(v, "price", "service")) &&
   (v.roles === null ||
     array(v.roles, (r): r is string => typeof r === "string"));

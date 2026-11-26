@@ -4,7 +4,6 @@ import {
   rows,
   section,
   sectionHeading,
-  status,
 } from "../components/classes";
 import { useState } from "react";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
@@ -13,18 +12,22 @@ import type { Confirm } from "../components/ConfirmDialog";
 import { Fields } from "../components/Fields";
 import { Notice } from "../components/Notice";
 import { SessionDetail } from "../components/SessionDetail";
+import { StatusBadge } from "../components/Status";
 import { label, short } from "../format";
-import { describeSession } from "../session";
+import { describeSession, sessionTone } from "../session";
 import { useClock } from "../useClock";
 import { useRemote } from "../useRemote";
+
 export function Sessions({ door, confirm }: { door: Door; confirm: Confirm }) {
-  const updates = useRemote(endpoint("sessions", door), sessions, 5000);
+  const updates = useRemote(endpoint("sessions", door), sessions, 3000);
   const [selection, setSelection] = useState("");
   const items = updates.data?.sessions || [];
+
   const selected =
     items.find((item) => item.sessionId === selection) ?? items[0];
   const warning = updates.error || updates.data?.warning;
   const now = useClock();
+
   return (
     <section className={section}>
       <div className={sectionHeading}>
@@ -70,28 +73,36 @@ export function Sessions({ door, confirm }: { door: Door; confirm: Confirm }) {
       ) : null}
       {items.length > 1 ? (
         <ul className={rows}>
-          {items.map((item) => (
-            <li key={item.sessionId}>
-              <button
-                type="button"
-                className={row}
-                aria-pressed={selected?.sessionId === item.sessionId}
-                onClick={() => setSelection(item.sessionId)}
-              >
-                <span>
-                  <span className={rowTitle}>
-                    {item.lastVerified?.service ||
-                      item.lastVerified?.role ||
-                      "Session"}
+          {items.map((item) => {
+            const described = describeSession(item, now, Boolean(warning));
+            const visual = sessionTone(described.state);
+            return (
+              <li key={item.sessionId}>
+                <button
+                  type="button"
+                  className={row}
+                  aria-pressed={selected?.sessionId === item.sessionId}
+                  onClick={() => setSelection(item.sessionId)}
+                >
+                  <span>
+                    <span className={rowTitle}>
+                      {item.lastVerified?.service
+                        ? "Private service · " + item.lastVerified.service
+                        : item.lastVerified?.role
+                          ? "SSH · " + item.lastVerified.role
+                          : "Session"}
+                    </span>
+                    <code>{short(item.sessionId)}</code>
                   </span>
-                  <code>{short(item.sessionId)}</code>
-                </span>
-                <span className={status}>
-                  {describeSession(item, now, Boolean(warning)).state}
-                </span>
-              </button>
-            </li>
-          ))}
+                  <StatusBadge
+                    label={described.state}
+                    tone={visual.tone}
+                    icon={visual.icon}
+                  />
+                </button>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </section>

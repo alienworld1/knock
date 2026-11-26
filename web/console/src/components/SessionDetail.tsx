@@ -1,19 +1,16 @@
-import {
-  actions,
-  danger,
-  panel,
-  panelHeading,
-  panelIcon,
-  status,
-} from "./classes";
+import { actions, danger, panel, panelHeading, panelIcon } from "./classes";
 import type { ReactNode } from "react";
-import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
+import { ArrowsLeftRightIcon } from "@phosphor-icons/react/ArrowsLeftRight";
+import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import { TimerIcon } from "@phosphor-icons/react/Timer";
 import type { Session } from "../api";
+import { Copyable } from "./Copyable";
 import { Evidence, Fields } from "./Fields";
 import { Notice } from "./Notice";
+import { StatusBadge } from "./Status";
 import { duration, short, utc } from "../format";
-import { describeSession } from "../session";
+import { describeSession, sessionTone } from "../session";
+
 export function SessionDetail({
   item,
   now,
@@ -29,12 +26,26 @@ export function SessionDetail({
   const description = describeSession(item, now, stale);
   if (!record) return <Notice error>{description.state}</Notice>;
   const { state, remaining, progress } = description;
-  const confirmed = state === "Active" || Boolean(record.closedAt);
+  const visual = sessionTone(state);
+  const ScopeIcon = record.service
+    ? ArrowsLeftRightIcon
+    : record.role
+      ? TerminalWindowIcon
+      : TimerIcon;
+  const expiryLine = record.closedAt
+    ? "Ended " +
+      utc(record.closedAt) +
+      " · Scheduled expiry " +
+      utc(record.deadline)
+    : record.deadline <= now
+      ? "Expired " + utc(record.deadline)
+      : "Expires " + utc(record.deadline);
+
   return (
     <article className={panel}>
       <div className={panelHeading}>
         <div className={panelIcon}>
-          <TimerIcon size={22} aria-hidden />
+          <ScopeIcon size={22} aria-hidden />
         </div>
         <div>
           <h3>
@@ -44,12 +55,12 @@ export function SessionDetail({
           </h3>
           <code className="text-muted">{short(item.sessionId)}</code>
         </div>
-        <span
-          className={confirmed ? status + " text-success!" : status}
+        <StatusBadge
           role="status"
-        >
-          {confirmed ? <CheckCircleIcon size={16} aria-hidden /> : null} {state}
-        </span>
+          label={state}
+          tone={visual.tone}
+          icon={visual.icon}
+        />
       </div>
       <div className="mt-4 border-y border-seam py-4 [&_p]:text-muted">
         {remaining !== undefined ? (
@@ -64,7 +75,7 @@ export function SessionDetail({
             aria-label="Elapsed share of the access window"
           />
         ) : null}
-        <p>Expires {utc(record.deadline)}</p>
+        <p>{expiryLine}</p>
       </div>
       <Fields
         items={[
@@ -83,8 +94,14 @@ export function SessionDetail({
       />
       <Evidence
         items={[
-          ["Session ID", <code>{item.sessionId}</code>],
-          ["Request ID", <code>{record.requestId}</code>],
+          [
+            "Session ID",
+            <Copyable value={item.sessionId} label="session ID" />,
+          ],
+          [
+            "Request ID",
+            <Copyable value={record.requestId} label="request ID" />,
+          ],
           ["Last host observation", record.state],
           [
             "Last chain check",
@@ -100,10 +117,13 @@ export function SessionDetail({
             : []),
           ...(record.revokedAt
             ? [
-                ["Revocation block", <code>{record.revokedBlock}</code>] as [
-                  string,
-                  ReactNode,
-                ],
+                [
+                  "Revocation block",
+                  <Copyable
+                    value={record.revokedBlock}
+                    label="revocation block"
+                  />,
+                ] as [string, ReactNode],
               ]
             : []),
         ]}

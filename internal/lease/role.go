@@ -21,15 +21,18 @@ func Role(role, id, command string, input io.Reader, output io.Writer) error {
 	if command != "" {
 		return roleCommand(role, id, command, output)
 	}
-	menu := "Commands: status, quit"
+	menu := "Commands: status, help, quit"
 	if role == "maintenance" {
-		menu = "Commands: status, start, quit"
+		menu = "Commands: status, start, help, quit"
 	}
-	fmt.Fprintln(output, menu)
+	fmt.Fprintf(output, "Knock SSH session (role: %s)\n%s\n", role, menu)
 	in := bufio.NewScanner(input)
 	in.Buffer(make([]byte, 256), 256)
 	for in.Scan() {
 		command = strings.TrimSpace(in.Text())
+		if command == "" {
+			continue
+		}
 		if command == "quit" {
 			return nil
 		}
@@ -42,6 +45,13 @@ func Role(role, id, command string, input io.Reader, output io.Writer) error {
 
 func roleCommand(role, id, command string, output io.Writer) error {
 	switch command {
+	case "help":
+		fmt.Fprintln(output, "status  show host uptime")
+		if role == "maintenance" {
+			fmt.Fprintln(output, "start   start one contained diagnostic workload")
+		}
+		fmt.Fprintln(output, "help    list available commands")
+		fmt.Fprintln(output, "quit    disconnect")
 	case "status":
 		data, err := os.ReadFile("/proc/uptime")
 		if err != nil {

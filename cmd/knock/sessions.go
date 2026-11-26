@@ -72,7 +72,10 @@ func (s *settings) sessionsCommand() *cobra.Command {
 				return command.Exit(8, writeErr)
 			}
 		} else {
-			for _, item := range output {
+			for i, item := range output {
+				if i > 0 {
+					fmt.Fprintln(cmd.OutOrStdout())
+				}
 				printSession(cmd.OutOrStdout(), item)
 			}
 			if len(output) == 0 {
@@ -194,30 +197,39 @@ func displaySession(now time.Time, record *admission.SessionStatus, unavailable 
 }
 
 func printSession(out io.Writer, item sessionDisplay) {
-	fmt.Fprintf(out, "Session %s · %s\n", item.Session.Hex(), item.State)
+	command.Field(out, "Session", item.Session.Hex())
+	command.Field(out, "State", item.State)
 	if record := item.LastVerified; record != nil {
 		utc := func(unix int64) string { return time.Unix(unix, 0).UTC().Format(time.RFC3339) }
-		scope := record.Role
+		scope := "SSH · " + record.Role
 		if record.Service != "" {
-			scope = record.Service
+			scope = "Private service · " + record.Service
 		}
-		fmt.Fprintf(out, "%s · Expires %s · Last verified %s\nRequest %s\n", scope, utc(record.Deadline), utc(record.Observed), record.RequestID.Hex())
+		command.Field(out, "Scope", scope)
+		expiry := utc(record.Deadline)
+		if (item.State == string(lease.Active) || item.State == string(lease.Ready)) && record.Deadline > time.Now().Unix() {
+			rem := time.Until(time.Unix(record.Deadline, 0)).Truncate(time.Second)
+			expiry = fmt.Sprintf("%s (%s remaining)", expiry, rem)
+		}
+		command.Field(out, "Expires", expiry)
+		command.Field(out, "Last verified", utc(record.Observed))
+		command.Field(out, "Request", record.RequestID.Hex())
 		if item.State == "Unknown" {
-			fmt.Fprintf(out, "Last known state %s · Closure unknown\n", record.State)
+			command.Field(out, "Last known state", string(record.State)+" (closure unknown)")
 		}
 		if record.RevokedAt != 0 {
-			fmt.Fprintf(out, "Revocation observed %s · Block %s\n", utc(record.RevokedAt), record.RevokedBlock.Hex())
+			command.Field(out, "Revocation", fmt.Sprintf("Observed %s · Block %s", utc(record.RevokedAt), record.RevokedBlock.Hex()))
 		}
 		if record.ClosedAt != 0 {
 			if record.Cause == "Revoked" {
-				fmt.Fprintf(out, "Revocation enforced %s\n", utc(record.ClosedAt))
+				command.Field(out, "Closure", "Revocation enforced "+utc(record.ClosedAt))
 			} else {
-				fmt.Fprintf(out, "Closure verified %s\n", utc(record.ClosedAt))
+				command.Field(out, "Closure", "Verified "+utc(record.ClosedAt))
 			}
 		}
 		if record.ReceiptState != "" {
-			fmt.Fprintf(out, "Receipt %s\n", strings.ToLower(record.ReceiptState))
+			command.Field(out, "Receipt", record.ReceiptState)
 		}
 	}
-	fmt.Fprintf(out, "Chain monitoring %s\n", strings.ToLower(item.Monitoring))
+	command.Field(out, "Chain monitoring", item.Monitoring)
 }

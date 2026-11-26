@@ -44,6 +44,7 @@ func formatQOR(uqor uint64) string {
 }
 
 func (s *settings) buyPass(cmd *cobra.Command, target string, duration time.Duration, price uint64) error {
+	command.Wait(cmd.ErrOrStderr(), "Resolving "+target+"…")
 	return s.withDoor(cmd, target, func(ctx context.Context, evm *chain.EVM, card door.Card) error {
 		d := card.Details
 		if d.Mode != door.Metered || !d.Policy.Enabled || uint64(duration/time.Second) != d.Policy.MaxDurationSeconds {
@@ -63,9 +64,12 @@ func (s *settings) buyPass(cmd *cobra.Command, target string, duration time.Dura
 			return command.Exit(2, err)
 		}
 		out := cmd.ErrOrStderr()
+		command.OK(out, "Door identity verified")
 		offer := d.Policy.Offer
-		fmt.Fprintf(out, "Door %s\nPrivate service %s · %s\n%s test QOR on Diana · Network fees are additional\n",
-			d.Account, offer.Service, duration, formatQOR(offer.PriceUQOR))
+		command.Field(out, "Door", d.Account)
+		command.Field(out, "Service", offer.Service)
+		command.Field(out, "Duration", duration.String())
+		command.Field(out, "Price", formatQOR(offer.PriceUQOR)+" test QOR on Diana (network fees additional)")
 		switch {
 		case cmd.Flags().Changed("price-uqor"):
 			if price != offer.PriceUQOR {
@@ -136,7 +140,9 @@ func (s *settings) buyPass(cmd *cobra.Command, target string, duration time.Dura
 			return command.Exit(5, fmt.Errorf("%s · Transaction %s · Run knock payment show %s before paying again",
 				message, record.Transaction.Hex(), commitment.Hex()))
 		}
-		fmt.Fprintf(out, "Payment confirmed · Transaction %s\nWaiting for access · Session %s\n", record.Transaction.Hex(), record.Session.Hex())
+		command.OK(out, "Payment confirmed · Transaction "+record.Transaction.Hex())
+		command.Field(out, "Session", record.Session.Hex())
+		command.Wait(out, "Waiting for access…")
 		connected := false
 		if err := waitForDecision(cmd, authority, relay, request, func() {
 			connected, record.Connected = true, true
@@ -297,26 +303,28 @@ func verifyPaymentDisplay(ctx context.Context, record paymentRecord, result *pay
 }
 
 func printPaymentDisplay(out io.Writer, result paymentDisplay) {
-	fmt.Fprintf(out, "Diana · Pass %s\nTransaction %s\n", result.Pass.Hex(), result.Transaction.Hex())
+	command.Field(out, "Network", "Diana")
+	command.Field(out, "Pass", result.Pass.Hex())
+	command.Field(out, "Transaction", result.Transaction.Hex())
 	switch result.State {
 	case "Reverted":
-		fmt.Fprintln(out, "Payment reverted.")
+		command.Field(out, "Payment", "Reverted")
 	case "Pending":
-		fmt.Fprintln(out, "Payment pending. Check this reference before paying again.")
+		command.Field(out, "Payment", "Pending (check this reference before paying again)")
 	case "Confirmed":
-		fmt.Fprintln(out, "Payment confirmed.")
+		command.Field(out, "Payment", "Confirmed")
 		if result.ConsumedSession != nil {
-			fmt.Fprintf(out, "Pass consumed · Session %s\n", result.ConsumedSession.Hex())
+			command.Field(out, "Consumed session", result.ConsumedSession.Hex())
 		}
 		switch result.Service {
 		case "Verified":
-			fmt.Fprintln(out, "Private service request verified.")
+			command.Field(out, "Service access", "Verified")
 		case "Unfulfilled":
-			fmt.Fprintln(out, "Pass unfulfilled. Contact the Door operator with this reference before paying again.")
+			command.Field(out, "Service access", "Unfulfilled (contact the Door operator with this reference before paying again)")
 		default:
-			fmt.Fprintln(out, "Service access unverified. Contact the Door operator with this reference before paying again.")
+			command.Field(out, "Service access", "Unverified (contact the Door operator with this reference before paying again)")
 		}
 	default:
-		fmt.Fprintln(out, "Payment outcome unverified. Check this reference before paying again.")
+		command.Field(out, "Payment", "Unverified (check this reference before paying again)")
 	}
 }

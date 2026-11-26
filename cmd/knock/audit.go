@@ -190,36 +190,47 @@ func (s *settings) loadHistory(ctx context.Context, selected, from string, keys 
 
 func printReceipt(out io.Writer, r admission.AuditReceipt, details bool) {
 	utc := func(unix int64) string { return time.Unix(unix, 0).UTC().Format(time.RFC3339) }
-	fmt.Fprintf(out, "Receipt %s · %s · %s · Epoch %d · Signature verified\n", r.ID.Hex(), utc(r.CleanupObservedAt), r.Cleanup, r.Epoch)
 	if !details {
+		fmt.Fprintf(out, "Receipt %s · %s · %s · Epoch %d · Signature verified\n", r.ID.Hex(), utc(r.CleanupObservedAt), r.Cleanup, r.Epoch)
 		return
 	}
-	fmt.Fprintf(out, "Door %s\nSession %s\nRequest %s\nRequester %s\n", r.Door, r.Session.Hex(), r.Request.Hex(), r.Requester)
+	command.Field(out, "Receipt", r.ID.Hex())
+	command.Field(out, "Cleanup", string(r.Cleanup))
+	command.Field(out, "Cleanup observed", utc(r.CleanupObservedAt))
+	command.Field(out, "Epoch", fmt.Sprintf("%d", r.Epoch))
+	command.Field(out, "Signature", "ML-DSA-87 + secp256k1 verified")
+	command.Field(out, "Door", r.Door)
+	command.Field(out, "Session", r.Session.Hex())
+	command.Field(out, "Request", r.Request.Hex())
+	command.Field(out, "Requester", r.Requester)
 	if r.Service != "" {
-		fmt.Fprintf(out, "Service %s · Purchase %s\n", r.Service, r.Purchase.Hex())
+		command.Field(out, "Service", r.Service)
+		command.Field(out, "Purchase", r.Purchase.Hex())
 		if r.ConsumptionTx != (common.Hash{}) {
-			fmt.Fprintf(out, "Consumption transaction %s\n", r.ConsumptionTx.Hex())
+			command.Field(out, "Consumption tx", r.ConsumptionTx.Hex())
 		}
 	} else {
-		fmt.Fprintf(out, "Role %s · Approved by %s\n", r.Role, r.Approver)
+		command.Field(out, "Role", r.Role)
+		command.Field(out, "Approver", r.Approver)
 	}
-	fmt.Fprintf(out, "Requested duration %s · Termination observed %s · %s\n", time.Duration(r.RequestedSeconds)*time.Second, utc(r.TerminationObservedAt), r.Cause)
+	command.Field(out, "Requested", (time.Duration(r.RequestedSeconds) * time.Second).String())
+	command.Field(out, "Termination", fmt.Sprintf("%s (%s)", utc(r.TerminationObservedAt), r.Cause))
 	if r.Cleanup == lease.Closed {
 		if r.Service != "" {
-			fmt.Fprintln(out, "Cleanup verified for firewall access, WireGuard peer and private service")
+			command.Field(out, "Verified cleanup", "Firewall access, WireGuard peer, private service")
 		} else {
-			fmt.Fprintln(out, "Cleanup verified for firewall access, WireGuard peer, SSH authorization and contained workloads")
+			command.Field(out, "Verified cleanup", "Firewall access, WireGuard peer, SSH authorization, contained workloads")
 		}
 	}
 	if r.ActiveObservedAt == 0 {
-		fmt.Fprintln(out, "Connection unobserved")
+		command.Field(out, "Connection", "Unobserved")
 	} else {
-		fmt.Fprintf(out, "Observed connection duration %s\n", time.Duration(r.ActualSeconds)*time.Second)
+		command.Field(out, "Connection", (time.Duration(r.ActualSeconds)*time.Second).String()+" observed")
 	}
 	if r.RevocationBlock != (common.Hash{}) {
-		fmt.Fprintf(out, "Revocation observed in block %s\n", r.RevocationBlock.Hex())
+		command.Field(out, "Revocation block", r.RevocationBlock.Hex())
 	}
 	if r.Corrects != (common.Hash{}) {
-		fmt.Fprintf(out, "Corrects receipt %s\n", r.Corrects.Hex())
+		command.Field(out, "Corrects receipt", r.Corrects.Hex())
 	}
 }

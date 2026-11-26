@@ -11,7 +11,10 @@ import (
 )
 
 func testConsole() *consoleServer {
-	files := fstest.MapFS{"index.html": {Data: []byte("<main>Knock</main>")}}
+	files := fstest.MapFS{
+		"index.html":  {Data: []byte("<main>Knock</main>")},
+		"favicon.svg": {Data: []byte("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>")},
+	}
 	return newConsoleServer("127.0.0.1:12345", files, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -85,6 +88,7 @@ func TestConsoleRejectsUnsafeRequests(t *testing.T) {
 		{"duplicate cookie", "GET", "/api/doors", func(r *http.Request) { r.AddCookie(&http.Cookie{Name: server.cookieName, Value: server.session}) }, 401},
 		{"valid session", "POST", "/api/decision", func(*http.Request) {}, 204},
 		{"direct History route", "GET", "/history", func(*http.Request) {}, 200},
+		{"favicon asset", "GET", "/favicon.svg", func(*http.Request) {}, 200},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := consoleRequest(server, tc.method, tc.path, "{}")

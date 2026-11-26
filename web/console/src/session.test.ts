@@ -68,3 +68,29 @@ test("confirmed revocation closure survives fresh-data failures", () => {
     ),
   ).toEqual({ state: "Revocation enforced" });
 });
+test("pending revocation does not report active before Door closure", () => {
+  expect(
+    describeSession(
+      {
+        ...signed,
+        revocation: "Registry revocation confirmed",
+      },
+      150,
+    ),
+  ).toEqual({
+    state: "Revocation pending",
+    remaining: 50,
+    progress: 0.5,
+  });
+  expect(
+    describeSession(
+      {
+        ...signed,
+        state: "Closing",
+        revocation: "Revocation observed by the Door",
+        lastVerified: { ...signed.lastVerified, state: "Closing" },
+      },
+      150,
+    ),
+  ).toEqual({ state: "Revocation pending" });
+});

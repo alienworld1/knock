@@ -20,7 +20,13 @@ func main() { os.Exit(command.Run(root())) }
 
 func root() *cobra.Command {
 	var path string
-	root := &cobra.Command{Use: "knockd", Short: "Operate a Knock Door"}
+	root := &cobra.Command{
+		Use:   "knockd",
+		Short: "Operate a Knock Door",
+		Example: `  knockd register --config door.json
+  knockd serve --config /etc/knock/door.json
+  knockd mailbox --state mailbox.db`,
+	}
 	root.PersistentFlags().StringVar(&path, "config", "", "Door configuration path")
 	root.AddCommand(mailboxCommand(), auditExportCommand(&path),
 		&cobra.Command{
@@ -81,21 +87,21 @@ func root() *cobra.Command {
 	)
 	root.AddCommand(
 		&cobra.Command{
-			Use: "reconcile", Short: "Close outstanding SSH sessions on a stopped Door", Args: cobra.NoArgs,
+			Use: "reconcile", Short: "Close outstanding sessions on a stopped Door", Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				config, err := door.LoadConfig(path)
 				if err != nil {
 					return command.Exit(2, err)
 				}
 				if config.WireGuardEndpoint == "" {
-					return command.Exit(2, errors.New("the Door has no configured SSH service"))
+					return command.Exit(2, errors.New("the Door has no configured WireGuard service"))
 				}
 				ssh, err := reconcileSSH(cmd.Context(), config)
 				if err != nil {
 					return command.Exit(7, err)
 				}
 				defer ssh.Release()
-				fmt.Fprintln(cmd.OutOrStdout(), "SSH cleanup verified")
+				fmt.Fprintln(cmd.OutOrStdout(), "Host cleanup verified")
 				return nil
 			},
 		},
@@ -107,7 +113,7 @@ func root() *cobra.Command {
 				if err := lease.Expire(call, args[0]); err != nil {
 					return command.Exit(7, fmt.Errorf("Session %s · Cleanup incomplete: %w", args[0], err))
 				}
-				fmt.Fprintln(cmd.OutOrStdout(), "SSH expiry cleanup completed")
+				fmt.Fprintln(cmd.OutOrStdout(), "Session expiry cleanup completed")
 				return nil
 			},
 		},
@@ -140,7 +146,7 @@ func reconcileSSH(ctx context.Context, config door.Config) (*lease.Host, error) 
 	ssh, cleanup := lease.StartHost(call, config.WireGuardEndpoint, config.Policy.Offer != nil)
 	if cleanup != nil {
 		if !errors.Is(cleanup, lease.ErrDoorLocked) {
-			command.Progress("SSH cleanup incomplete. Admissions remain closed.")
+			command.Progress("Host cleanup incomplete. Admissions remain closed.")
 		}
 		return nil, cleanup
 	}

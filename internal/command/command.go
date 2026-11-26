@@ -50,8 +50,15 @@ func Run(root *cobra.Command) int {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if err := root.ExecuteContext(ctx); err != nil {
-		if err.Error() != "" {
-			fmt.Fprintln(os.Stderr, err)
+		if msg := err.Error(); msg != "" {
+			if !strings.HasPrefix(msg, "error:") {
+				msg = "error: " + msg
+			}
+			if ColorEnabled(os.Stderr) {
+				fmt.Fprintf(os.Stderr, "\x1b[31merror:\x1b[0m %s\n", strings.TrimPrefix(msg, "error: "))
+			} else {
+				fmt.Fprintln(os.Stderr, msg)
+			}
 		}
 		var exit failure
 		if errors.As(err, &exit) {
@@ -75,7 +82,7 @@ func Prompt(label string) ([]byte, error) {
 	if !term.IsTerminal(fd) {
 		return nil, errors.New("unlock the identity from a terminal")
 	}
-	fmt.Fprint(os.Stderr, label+" ")
+	fmt.Fprint(os.Stderr, label+": ")
 	value, err := term.ReadPassword(fd)
 	fmt.Fprintln(os.Stderr)
 	if err != nil || len(value) == 0 {

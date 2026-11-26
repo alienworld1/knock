@@ -1,0 +1,30 @@
+{
+  "registry": {
+    "address": "0x0000000000000000000000000000000000000000",
+    "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "doorId": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "owner": "qor1...",
+  "account": "qor1...",
+  "ownerProfile": "owner.age",
+  "doorProfile": "door.age",
+  "cards": "cards",
+  "mailbox": "http://127.0.0.1:8180",
+  "wireGuardEndpoint": "198.18.0.1:48001",
+  "audit": false,
+  "state": "/var/lib/knock/admission.db",
+  "policy": {
+    "version": 1,
+    "enabled": true,
+    "maxDurationSeconds": 120,
+    "approversCanRevoke": false,
+    "approvers": [],
+    "roles": [],
+    "offer": {
+      "id": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "service": "private-status",
+      "priceUqor": 10000,
+      "beneficiary": "qor1..."
+    }
+  }
+}

@@ -7,17 +7,19 @@ import {
   rows,
   section,
   sectionHeading,
-  status,
 } from "./classes";
 import { useState } from "react";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
 import { endpoint, requests, type Door } from "../api";
 import type { Confirm } from "./ConfirmDialog";
+import { Copyable } from "./Copyable";
 import { Evidence, Fields } from "./Fields";
 import { Notice } from "./Notice";
+import { StatusBadge, type StatusTone } from "./Status";
 import { duration, label, short, utc } from "../format";
 import { useClock } from "../useClock";
 import { useRemote } from "../useRemote";
+
 export function Requests({ door, confirm }: { door: Door; confirm: Confirm }) {
   const list = useRemote(endpoint("requests", door), requests, 6000);
   const [selection, setSelection] = useState("");
@@ -28,6 +30,7 @@ export function Requests({ door, confirm }: { door: Door; confirm: Confirm }) {
   );
   const selected = detail.data?.[0];
   const now = useClock();
+
   return (
     <section className={section}>
       <div className={sectionHeading}>
@@ -43,25 +46,32 @@ export function Requests({ door, confirm }: { door: Door; confirm: Confirm }) {
       ) : null}
       {list.data?.length ? (
         <ul className={rows}>
-          {list.data.map((item) => (
-            <li key={item.id}>
-              <button
-                type="button"
-                className={row}
-                aria-pressed={selection === item.id}
-                onClick={() => setSelection(item.id)}
-              >
-                <span>
-                  <span className={rowTitle}>
-                    {item.service || "SSH · " + item.role}
+          {list.data.map((item) => {
+            const status = requestState(item);
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  className={row}
+                  aria-pressed={selection === item.id}
+                  onClick={() => setSelection(item.id)}
+                >
+                  <span>
+                    <span className={rowTitle}>
+                      {item.service || "SSH · " + item.role}
+                    </span>
+                    <code>{short(item.requester)}</code>
                   </span>
-                  <code>{short(item.requester)}</code>
-                </span>
-                <span>{duration(item.durationSeconds)}</span>
-                <span className={status}>{requestState(item)}</span>
-              </button>
-            </li>
-          ))}
+                  <span>{duration(item.durationSeconds)}</span>
+                  <StatusBadge
+                    label={status.label}
+                    tone={status.tone}
+                    icon={status.icon}
+                  />
+                </button>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
       {detail.loading ? <Notice>Verifying the selected request…</Notice> : null}
@@ -75,18 +85,30 @@ export function Requests({ door, confirm }: { door: Door; confirm: Confirm }) {
           <h3>Review request</h3>
           <Fields
             items={[
-              ["Requester", <code>{selected.requester}</code>],
+              [
+                "Requester",
+                <Copyable
+                  value={selected.requester}
+                  label="requester account"
+                />,
+              ],
               ["Scope", selected.service || "SSH · " + selected.role],
               ["Requested access", duration(selected.durationSeconds)],
               ["Decide by", utc(Date.parse(selected.deadline) / 1000)],
               ["Reason", selected.reason],
-              ["Decision", requestState(selected)],
+              ["Decision", requestState(selected).label],
             ]}
           />
           <Evidence
             items={[
-              ["Request ID", <code>{selected.id}</code>],
-              ["Door account", <code>{door.account}</code>],
+              [
+                "Request ID",
+                <Copyable value={selected.id} label="request ID" />,
+              ],
+              [
+                "Door account",
+                <Copyable value={door.account} label="Door account" />,
+              ],
             ]}
           />
           {selected.delivered ||
@@ -156,8 +178,12 @@ export function Requests({ door, confirm }: { door: Door; confirm: Confirm }) {
 function requestState(item: {
   decision?: "approve" | "deny";
   delivered: boolean;
-}) {
-  if (!item.decision) return "Waiting for decision";
-  if (!item.delivered) return "Delivery unconfirmed";
-  return item.decision === "deny" ? "Denial sent" : "Approval sent";
+}): { label: string; tone: StatusTone; icon?: "clock" | "alert" } {
+  if (!item.decision)
+    return { label: "Waiting for decision", tone: "warning", icon: "clock" };
+  if (!item.delivered)
+    return { label: "Delivery unconfirmed", tone: "warning", icon: "alert" };
+  return item.decision === "deny"
+    ? { label: "Denial sent", tone: "neutral" }
+    : { label: "Approval sent", tone: "success" };
 }

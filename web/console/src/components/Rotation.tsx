@@ -4,18 +4,25 @@ import type { Door } from "../api";
 import type { Confirm } from "./ConfirmDialog";
 import { Fields } from "./Fields";
 import { label } from "../format";
+
+const accountPattern = /^qor1[a-z0-9]{38,64}$/;
+
 export function Rotation({
   door,
+  latestEpoch = 0,
   confirm,
   refresh,
 }: {
   door: Door;
+  latestEpoch?: number;
   confirm: Confirm;
   refresh: () => void;
 }) {
   const [epoch, setEpoch] = useState("");
   const [members, setMembers] = useState("");
   const [clear, setClear] = useState(false);
+  const [error, setError] = useState("");
+
   return (
     <details className={panel}>
       <summary>Audit membership</summary>
@@ -29,6 +36,22 @@ export function Rotation({
                 .trim()
                 .split(/[\s,]+/)
                 .filter(Boolean);
+          if (!clear) {
+            if (accounts.length > 16) {
+              setError("Enter at most 16 auditor accounts.");
+              return;
+            }
+            const invalid = accounts.find((a) => !accountPattern.test(a));
+            if (invalid) {
+              setError("Enter valid qor1 Diana account addresses.");
+              return;
+            }
+            if (new Set(accounts).size !== accounts.length) {
+              setError("Remove duplicate auditor accounts.");
+              return;
+            }
+          }
+          setError("");
           confirm({
             title: "Request rotation",
             path: "rotation",
@@ -70,7 +93,10 @@ export function Rotation({
           Current epoch{" "}
           <input
             value={epoch}
-            onChange={(event) => setEpoch(event.target.value)}
+            onChange={(event) => {
+              setEpoch(event.target.value);
+              setError("");
+            }}
             inputMode="numeric"
             pattern="[0-9]+"
             maxLength={20}
@@ -79,15 +105,19 @@ export function Rotation({
           />
         </label>
         <p id="epoch-help">
-          Check the Door log for the current epoch. Use 0 for the first
-          rotation.
+          {latestEpoch > 0
+            ? `Highest receipt epoch seen: ${latestEpoch}. Confirm the Door's committed epoch in its log.`
+            : "Check the Door log for the current epoch. Use 0 for the first rotation."}
         </p>
         <label>
           Auditor accounts{" "}
           <textarea
             className="w-full resize-y"
             value={members}
-            onChange={(event) => setMembers(event.target.value)}
+            onChange={(event) => {
+              setMembers(event.target.value);
+              setError("");
+            }}
             required={!clear}
             disabled={clear}
             maxLength={2400}
@@ -102,10 +132,18 @@ export function Rotation({
           <input
             type="checkbox"
             checked={clear}
-            onChange={(event) => setClear(event.target.checked)}
+            onChange={(event) => {
+              setClear(event.target.checked);
+              setError("");
+            }}
           />{" "}
           Remove all auditors
         </label>
+        {error ? (
+          <p role="alert" className="text-danger!">
+            {error}
+          </p>
+        ) : null}
         <div className={actions}>
           <button className={primary} type="submit">
             Review rotation

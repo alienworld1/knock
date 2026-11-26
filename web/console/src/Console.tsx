@@ -1,10 +1,11 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DoorIcon } from "@phosphor-icons/react/Door";
 import { ReceiptIcon } from "@phosphor-icons/react/Receipt";
 import { TimerIcon } from "@phosphor-icons/react/Timer";
 import { NavLink, Navigate, Route, Routes, useMatch } from "react-router";
 import { doorList, endpoint, policy } from "./api";
 import { ConfirmDialog, type Action } from "./components/ConfirmDialog";
+import { Copyable } from "./components/Copyable";
 import { Mark } from "./components/Mark";
 import { Notice } from "./components/Notice";
 import { label, short } from "./format";
@@ -34,6 +35,10 @@ export function Console() {
   const card = useRemote(door ? endpoint("door", door) : null, policy, 15000);
   const heading = useRef<HTMLHeadingElement>(null);
   const actionTrigger = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    document.title = title + " — Knock";
+  }, [title]);
 
   function confirm(next: Action) {
     actionTrigger.current =
@@ -87,7 +92,10 @@ export function Console() {
             </NavLink>
           ))}
         </nav>
-        <div className="mt-auto grid gap-1 text-muted max-md:col-start-2 max-md:row-start-1 max-md:mt-0 max-md:flex max-md:items-center max-md:gap-2 max-md:[&>select]:px-1.5">
+        <div className="mt-auto grid gap-1.5 text-muted max-md:col-start-2 max-md:row-start-1 max-md:mt-0 max-md:flex max-md:items-center max-md:gap-2 max-md:[&>select]:px-1.5">
+          <p className="text-xs max-md:hidden">
+            Local loopback · Keys stay in knock
+          </p>
           <label htmlFor="console-theme">Theme</label>
           <select
             id="console-theme"
@@ -116,11 +124,16 @@ export function Console() {
             <p>Diana testnet</p>
           </div>
           {local.data ? (
-            <details className="min-w-0 max-w-[360px] text-end text-muted max-md:text-start">
+            <details className="min-w-0 max-w-[380px] text-end text-muted max-md:text-start">
               <summary>
                 Operator · <code>{short(local.data.identity)}</code>
               </summary>
-              <code>{local.data.identity}</code>
+              <div className="mt-1 text-start">
+                <Copyable
+                  value={local.data.identity}
+                  label="operator account"
+                />
+              </div>
             </details>
           ) : null}
         </header>
@@ -155,7 +168,9 @@ export function Console() {
               </select>
             </div>
             {notice ? (
-              <Notice error={notice.error}>{notice.text}</Notice>
+              <Notice tone={notice.error ? "error" : "success"}>
+                {notice.text}
+              </Notice>
             ) : null}
             {card.loading ? (
               <Notice>Verifying the Door Card on Diana…</Notice>
