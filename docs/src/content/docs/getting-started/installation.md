@@ -1,11 +1,27 @@
 ---
 title: Installation
-description: Build knock and knockd from source with the embedded operator console and run project verification checks.
+description: Install the Linux x86-64 binaries or build Knock from source.
 ---
 
-Knock ships two Go binaries (`knock` and `knockd`) and a static React operator console embedded directly inside `knock`.
+## Download for Linux x86-64
 
-## Build prerequisites
+The release archive includes `knock`, `knockd`, the embedded operator console, and the Door setup files. You can run the binaries without Go, Node.js, or Foundry.
+
+Download [knock-linux-amd64.tar.gz](/knock/downloads/knock-linux-amd64.tar.gz) and its [SHA-256 checksum](/knock/downloads/SHA256SUMS). The same files are available on [GitHub Releases](https://github.com/alienworld1/knock/releases/latest) for anyone with repository access.
+
+In the download directory, verify and extract the archive:
+
+```sh
+sha256sum -c SHA256SUMS &&
+  tar -xzf knock-linux-amd64.tar.gz &&
+  cd knock-linux-amd64 &&
+  bin/knock --help &&
+  bin/knockd --help
+```
+
+Follow the [Quickstart](/knock/getting-started/quickstart/) from the extracted directory, and check the runtime packages below for each machine.
+
+## Build from source
 
 Building from source requires:
 
@@ -17,8 +33,6 @@ Building from source requires:
 :::note
 Knock uses `pnpm` for JavaScript workspace dependencies and scripts. Do not use `npm` or `yarn`, and keep the existing lockfile intact.
 :::
-
-## Build the binaries
 
 Install console dependencies, compile the static operator console, and build `bin/knock` and `bin/knockd`:
 
@@ -52,5 +66,3 @@ make check
 | **Door host (`knockd`)**          | Ubuntu 24.04 LTS x86-64, 2 GiB RAM, systemd with cgroup v2, kernel WireGuard, `wireguard-tools`, `nftables`, OpenSSH (`sshd`, `ssh-keygen`), NTP time sync enabled, suspend disabled. |
 | **Requester machine (`knock`)**   | Linux with `wireguard-tools`, OpenSSH (`ssh`), and a limited `sudoers` rule if using `--tunnel` or `--ssh` WireGuard setup.                                                           |
 | **Approver or auditor (`knock`)** | Linux terminal for CLI commands and optional local loopback browser for `knock console`.                                                                                              |
-
-Next, follow the [Quickstart](/knock/getting-started/quickstart/) to initialize Diana testnet identities, deploy `KnockRegistry`, and open your first session.

@@ -3,7 +3,7 @@ title: Quickstart
 description: Initialize Diana identities, register a Door, approve an SSH request, purchase a metered pass, and read encrypted audit receipts.
 ---
 
-This guide walks through a working setup on QoreChain Diana testnet using `bin/knock` and `bin/knockd`.
+Start by [downloading and verifying the Linux x86-64 archive](/knock/getting-started/installation/#download-for-linux-x86-64). Run these commands from the extracted `knock-linux-amd64` directory or a source checkout built with `make build`.
 
 ## 1. Initialize and fund identities
 
@@ -25,14 +25,15 @@ bin/knock --profile approver.age identity register
 bin/knock --profile requester.age identity register
 ```
 
-## 2. Deploy KnockRegistry
+## 2. Select the Diana registry
 
-Compile the contract and deploy it with the owner profile, saving the pinned registry address and bytecode hash to `network.json`:
+Use the shared KnockRegistry on Diana. The included configuration pins its address and bytecode hash.
 
 ```sh
-forge build --root contracts
-go run ./contracts/cmd/deploy --profile owner.age > network.json
+cp deploy/network.diana.json network.json
 ```
+
+To deploy your own registry, follow the [deployment instructions in the README](https://github.com/alienworld1/knock#deploy-your-own-registry), then use the generated `network.json` for the remaining steps.
 
 ## 3. Configure and register an Approval Door
 

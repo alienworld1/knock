@@ -82,10 +82,11 @@ import { withBase } from "../utils/url";
           <div class="k-hero-actions">
             <a
               class="k-btn-primary"
-              href={withBase("/getting-started/overview/")}
+              href={withBase("/downloads/knock-linux-amd64.tar.gz")}
             >
-              Read the docs
+              Download for Linux x86-64
             </a>
+            <a href={withBase("/getting-started/overview/")}> Read the docs </a>
           </div>
           <AccessInstrument />
         </div>
@@ -326,7 +327,7 @@ import { withBase } from "../utils/url";
               <a href={withBase("/getting-started/quickstart/")}>
                 <span class="k-doc-title">Quickstart</span>
                 <span class="k-doc-desc">
-                  Initialize profiles, deploy KnockRegistry, and run your first
+                  Initialize profiles, register a Door, and run your first
                   approval and metered sessions.
                 </span>
               </a>
@@ -571,7 +572,15 @@ import { withBase } from "../utils/url";
   }
 
   .k-hero-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1.25rem;
     margin-bottom: 2rem;
+  }
+
+  .k-hero-actions a:not(.k-btn-primary) {
+    color: var(--k-text);
   }
 
   .k-btn-primary {

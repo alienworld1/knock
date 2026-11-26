@@ -29,6 +29,8 @@ sudo install -d -m 0755 /run/sshd
 
 ## Install knockd and systemd units
 
+Run these commands from the extracted [Linux release archive](/knock/getting-started/installation/#download-for-linux-x86-64) or a source checkout built with `make build`.
+
 Keep `/etc/knock` (`0700`) and the Door profile (`0600`) root-owned, and keep the `ownerProfile` off the Door host entirely.
 
 Encrypt the Door passphrase with systemd host-bound credentials and install the shipped unit and drop-in (`deploy/systemd/knockd.service` and `deploy/systemd/10-ssh.conf`):

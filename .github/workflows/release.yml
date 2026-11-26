@@ -1,0 +1,59 @@
+name: Publish Linux release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/console/package.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/console/pnpm-lock.yaml
+
+      - name: Build the Linux x86-64 archive
+        run: |
+          pnpm --dir web/console install --frozen-lockfile
+          make release-linux-amd64
+
+      - name: Check the packaged binaries
+        run: |
+          (cd bin && sha256sum -c SHA256SUMS)
+          unpacked=$(mktemp -d)
+          tar -xzf bin/knock-linux-amd64.tar.gz -C "$unpacked"
+          "$unpacked/knock-linux-amd64/bin/knock" --help
+          "$unpacked/knock-linux-amd64/bin/knockd" --help
+          CGO_ENABLED=0 go test ./...
+
+      - name: Publish to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --latest --title "Knock $GITHUB_REF_NAME" \
+            --notes "Knock for Linux x86-64, with the operator console and Door setup files. See the [installation guide](https://alienworld1.github.io/knock/getting-started/installation/)." \
+            bin/knock-linux-amd64.tar.gz bin/SHA256SUMS

@@ -1,7 +1,15 @@
-.PHONY: build console console-check check abi
+.PHONY: build console console-check check abi release-linux-amd64
 
 build: console
 	go build -trimpath -o bin/ ./cmd/knock ./cmd/knockd
+
+release-linux-amd64:
+	GOOS=linux GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=0 $(MAKE) build
+	tar --transform='s,^,knock-linux-amd64/,' -czf bin/knock-linux-amd64.tar.gz \
+		bin/knock bin/knockd LICENSE deploy/network.diana.json \
+		deploy/door.example.json deploy/door.metered.example.json deploy/knock-tunnel.sudoers \
+		deploy/systemd/knockd.service deploy/systemd/10-ssh.conf
+	cd bin && sha256sum knock-linux-amd64.tar.gz > SHA256SUMS
 
 console:
 	pnpm --dir web/console build

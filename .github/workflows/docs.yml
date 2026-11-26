@@ -8,6 +8,9 @@ on:
       - docs/**
       - .github/workflows/docs.yml
   workflow_dispatch:
+  workflow_run:
+    workflows: [Publish Linux release]
+    types: [completed]
 
 permissions:
   contents: read
@@ -20,7 +23,10 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    outputs:
+      downloads: ${{ steps.downloads.outputs.ready }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -43,12 +49,28 @@ jobs:
       - name: Build Astro Starlight site
         run: pnpm --dir docs build
 
+      - name: Add the published Linux downloads
+        id: downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          published=$(gh release list --limit 1 --exclude-drafts --exclude-pre-releases --json tagName --jq 'length')
+          if [[ "$published" == 0 ]]; then
+            echo "::notice::Pages will deploy after the first Linux release is published."
+            exit 0
+          fi
+          gh release download --pattern knock-linux-amd64.tar.gz --pattern SHA256SUMS --dir docs/dist/downloads
+          (cd docs/dist/downloads && sha256sum -c SHA256SUMS)
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
       - name: Upload Pages artifact
+        if: steps.downloads.outputs.ready == 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/dist
 
   deploy:
+    if: needs.build.outputs.downloads == 'true'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

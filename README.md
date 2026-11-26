@@ -5,6 +5,8 @@ Knock is a front door for private Linux servers. Requesters ask for access by Do
 - **Approval Door:** grants scoped, non-root SSH (`logs` or `maintenance`) with per-session WireGuard peers, timed nftables permits, OpenSSH certificates, and systemd cgroup process containment.
 - **Metered Door:** grants fixed-duration access to a private HTTP `/status` service after verifying a finalized single-use test QOR purchase on Diana.
 
+[Download for Linux x86-64](https://github.com/alienworld1/knock/releases/latest/download/knock-linux-amd64.tar.gz) · [Installation guide](https://alienworld1.github.io/knock/getting-started/installation/) · [Quickstart](https://alienworld1.github.io/knock/getting-started/quickstart/)
+
 ```sh
 knock validator-ops --ssh --role logs --for 15m --reason -
 knock private-status --tunnel --pay 2m
@@ -43,19 +45,24 @@ make check
 
 `make check` builds `bin/knock` and `bin/knockd` with the embedded console, runs Prettier, Vitest, and Playwright WCAG AA accessibility/E2E tests, runs `go vet` and `go test`, checks Solidity formatting and Foundry unit/fuzz tests, and verifies `KnockRegistry` ABI parity.
 
-## Quickstart
+### Deploy your own registry
 
-### 1. Identities and Door registration
-
-1. Initialize encrypted profiles in `0700` directories for owner, Door, approver, and requester: `bin/knock --profile /path/to/identity.age identity init`.
-2. Fund each address with test QOR from the [Diana faucet](https://dashboard.qorechain.io/faucet), then register keys with `bin/knock --profile /path/to/identity.age identity register`.
-3. Build and deploy `KnockRegistry`, saving the pinned address and code hash:
+From a source checkout, deploy to Diana and save the pinned address and code hash:
 
 ```sh
 forge build --root contracts
 go run ./contracts/cmd/deploy --profile /path/to/owner.age > network.json
 ```
 
+## Quickstart
+
+Run these commands from the extracted Linux release archive or a source checkout built with `make build`.
+
+### 1. Identities and Door registration
+
+1. Initialize encrypted profiles in `0700` directories for owner, Door, approver, and requester: `bin/knock --profile /path/to/identity.age identity init`.
+2. Fund each address with test QOR from the [Diana faucet](https://dashboard.qorechain.io/faucet), then register keys with `bin/knock --profile /path/to/identity.age identity register`.
+3. Copy the pinned Diana registry configuration with `cp deploy/network.diana.json network.json`. If you deployed your own registry, use the `network.json` from that deployment.
 4. Copy [the approval Door example](deploy/door.example.json) to `door.json`. Set the pinned registry, actor addresses and profiles, a unique 32-byte `doorId` (`0x$(openssl rand -hex 32)`), and `approvers` sorted by EVM address bytes.
 5. Run `bin/knockd register --config door.json` to commit policy v1 and publish the signed Door Card (Cards expire after 24 hours). Give the requester the Card and `network.json`, and trust the Door account over a verified channel:
 
