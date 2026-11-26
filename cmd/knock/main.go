@@ -35,7 +35,7 @@ func root() *cobra.Command {
 	s := &settings{home: command.Home()}
 	root := &cobra.Command{
 		Use:   "knock",
-		Short: "Request or review private access on Diana",
+		Short: "Temporary, verified access to private Linux servers",
 		Example: `  knock validator-ops --ssh --role logs --for 15m --reason -
   knock private-status --tunnel --pay 2m
   knock console`,
@@ -52,10 +52,10 @@ func root() *cobra.Command {
 }
 
 func (s *settings) identityCommands() *cobra.Command {
-	identityCommand := &cobra.Command{Use: "identity", Short: "Manage your Diana identity"}
+	identityCommand := &cobra.Command{Use: "identity", Short: "Manage your local identity"}
 	identityCommand.AddCommand(
 		&cobra.Command{
-			Use: "init", Short: "Create an encrypted Diana identity", Args: cobra.NoArgs,
+			Use: "init", Short: "Create an encrypted identity profile", Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				path := command.Profile(s.home, s.profile)
 				if path == "" {
@@ -71,12 +71,12 @@ func (s *settings) identityCommands() *cobra.Command {
 					return command.Exit(8, err)
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), account.Bech32)
-				command.Info(cmd.ErrOrStderr(), "Fund this address on Diana testnet, then run knock identity register.")
+				command.Info(cmd.ErrOrStderr(), "Fund this address on Diana testnet, then run: knock identity register")
 				return nil
 			},
 		},
 		&cobra.Command{
-			Use: "register", Short: "Register signing and recipient keys on Diana", Args: cobra.NoArgs,
+			Use: "register", Short: "Register signing and encryption keys on Diana", Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				keys, err := command.Unlock(command.Profile(s.home, s.profile), "Identity passphrase")
 				if err != nil {
@@ -101,7 +101,7 @@ func (s *settings) doorCommands() *cobra.Command {
 	group := &cobra.Command{Use: "door", Short: "Trust and inspect Doors"}
 	var alias string
 	trust := &cobra.Command{
-		Use: "trust <account>", Short: "Save a verified account as a local alias", Args: cobra.ExactArgs(1),
+		Use: "trust <account>", Short: "Save a verified Door account as a local alias", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if s.home == "" || !door.IsAlias(alias) {
 				return command.Exit(2, errors.New("set a local profile directory and an alias using lowercase letters, numbers, or hyphens"))
@@ -124,7 +124,7 @@ func (s *settings) doorCommands() *cobra.Command {
 	var asJSON bool
 	var revocation string
 	show := &cobra.Command{
-		Use: "show <door>", Short: "Verify the current Door Card and policy", Args: cobra.ExactArgs(1),
+		Use: "show <door>", Short: "Verify and inspect a Door Card and policy", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var session common.Hash
 			if revocation != "" {
@@ -172,11 +172,11 @@ func (s *settings) doorCommands() *cobra.Command {
 				duration := time.Duration(d.Policy.MaxDurationSeconds) * time.Second
 				if offer := d.Policy.Offer; offer != nil {
 					command.Field(out, "Service", offer.Service)
-					command.Field(out, "Duration", duration.String())
+					command.Field(out, "Duration", command.Duration(duration))
 					command.Field(out, "Price", formatQOR(offer.PriceUQOR)+" test QOR")
 				} else {
 					command.Field(out, "Roles", strings.Join(d.Policy.Roles, ", "))
-					command.Field(out, "Limit", duration.String())
+					command.Field(out, "Limit", command.Duration(duration))
 				}
 				command.Field(out, "Signing key", common.Hash(d.SigningKey).Hex())
 				command.Field(out, "Registry", d.Registry.Address.Hex())
@@ -196,7 +196,7 @@ func (s *settings) doorCommands() *cobra.Command {
 func (s *settings) revokeCommand() *cobra.Command {
 	var target string
 	cmd := &cobra.Command{
-		Use: "revoke <session-id>", Short: "Revoke a session reference on Diana", Args: cobra.ExactArgs(1),
+		Use: "revoke <session-id>", Short: "Revoke a session on Diana", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var session common.Hash
 			if session.UnmarshalText([]byte(args[0])) != nil || session == (common.Hash{}) {
@@ -214,7 +214,7 @@ func (s *settings) revokeCommand() *cobra.Command {
 			if err := s.revoke(cmd.Context(), selected, session, keys, command.Progress); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "Registry revocation confirmed. Check session status for host enforcement.")
+			fmt.Fprintln(cmd.OutOrStdout(), "Revocation confirmed on Diana. Check session status for host cleanup.")
 			return nil
 		},
 	}

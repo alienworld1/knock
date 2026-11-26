@@ -9,12 +9,18 @@ export function useRemote<T>(
   interval = 0,
 ) {
   const [result, setResult] = useState<Result<T>>();
+  const [refreshing, setRefreshing] = useState(false);
   const [revision, refresh] = useReducer((value: number) => value + 1, 0);
   const intervalRef = useRef(interval);
+  const manualRef = useRef(false);
   intervalRef.current = interval;
 
   useEffect(() => {
-    if (path === null) return;
+    if (path === null) {
+      manualRef.current = false;
+      setRefreshing(false);
+      return;
+    }
     const signal = new AbortController();
     let timer: number | undefined;
     async function load(url: string) {
@@ -34,6 +40,11 @@ export function useRemote<T>(
           data: previous?.path === url ? previous.data : undefined,
           error,
         }));
+      } finally {
+        if (!signal.signal.aborted && manualRef.current) {
+          manualRef.current = false;
+          setRefreshing(false);
+        }
       }
       if (!signal.signal.aborted && intervalRef.current)
         timer = window.setTimeout(() => void load(url), intervalRef.current);
@@ -42,14 +53,21 @@ export function useRemote<T>(
     return () => {
       signal.abort();
       window.clearTimeout(timer);
+      manualRef.current = false;
+      setRefreshing(false);
     };
   }, [path, check, revision]);
-  const retry = useCallback(() => refresh(), []);
+  const retry = useCallback(() => {
+    manualRef.current = true;
+    setRefreshing(true);
+    refresh();
+  }, []);
   const current = result?.path === path ? result : undefined;
   return {
     data: current?.data,
     error: current?.error,
     loading: path !== null && !current,
+    refreshing,
     retry,
   };
 }

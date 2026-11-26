@@ -62,8 +62,8 @@ func (s *settings) consoleCommand() *cobra.Command {
 			result := make(chan error, 1)
 			go func() { result <- httpServer.Serve(listener) }()
 			errOut := cmd.ErrOrStderr()
-			command.OK(errOut, "Unlocked operator "+keys.Account.Bech32)
-			command.Info(errOut, "Open this one-time link in your browser. Press Ctrl+C here to close the console.")
+			command.OK(errOut, "Unlocked "+keys.Account.Bech32)
+			command.Info(errOut, "Open this one-time link in your browser (press Ctrl+C here to stop):")
 			fmt.Fprintln(cmd.OutOrStdout(), launchURL)
 			select {
 			case err := <-result:

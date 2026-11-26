@@ -24,13 +24,13 @@ import (
 )
 
 func (s *settings) auditCommand() *cobra.Command {
-	audit := &cobra.Command{Use: "audit", Short: "Manage audit membership"}
+	audit := &cobra.Command{Use: "audit", Short: "Manage audit group membership"}
 	var target string
 	var members []string
 	var epoch uint64
 	var clearMembers bool
 	rotate := &cobra.Command{
-		Use: "rotate", Short: "Queue an owner-signed audit membership change", Args: cobra.NoArgs,
+		Use: "rotate", Short: "Request an audit membership rotation", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if target == "" || !cmd.Flags().Changed("epoch") || epoch == ^uint64(0) ||
 				(!clearMembers && len(members) == 0) || (clearMembers && len(members) != 0) {
@@ -128,7 +128,7 @@ func (s *settings) historyCommand() *cobra.Command {
 				return command.Exit(8, errors.New("no verified receipt with that reference"))
 			}
 			if !asJSON {
-				fmt.Fprintln(cmd.OutOrStdout(), "No verified receipts")
+				fmt.Fprintln(cmd.OutOrStdout(), "No verified receipts.")
 			}
 		}
 		return nil
@@ -189,14 +189,17 @@ func (s *settings) loadHistory(ctx context.Context, selected, from string, keys 
 }
 
 func printReceipt(out io.Writer, r admission.AuditReceipt, details bool) {
-	utc := func(unix int64) string { return time.Unix(unix, 0).UTC().Format(time.RFC3339) }
+	outcome := "Cleanup incomplete"
+	if r.Cleanup == lease.Closed {
+		outcome = "Closure verified"
+	}
 	if !details {
-		fmt.Fprintf(out, "Receipt %s · %s · %s · Epoch %d · Signature verified\n", r.ID.Hex(), utc(r.CleanupObservedAt), r.Cleanup, r.Epoch)
+		fmt.Fprintf(out, "Receipt %s · %s · %s · Epoch %d · Signature verified\n", r.ID.Hex(), command.UTC(r.CleanupObservedAt), outcome, r.Epoch)
 		return
 	}
 	command.Field(out, "Receipt", r.ID.Hex())
-	command.Field(out, "Cleanup", string(r.Cleanup))
-	command.Field(out, "Cleanup observed", utc(r.CleanupObservedAt))
+	command.Field(out, "Cleanup", outcome)
+	command.Field(out, "Cleanup observed", command.UTC(r.CleanupObservedAt))
 	command.Field(out, "Epoch", fmt.Sprintf("%d", r.Epoch))
 	command.Field(out, "Signature", "ML-DSA-87 + secp256k1 verified")
 	command.Field(out, "Door", r.Door)
@@ -213,8 +216,8 @@ func printReceipt(out io.Writer, r admission.AuditReceipt, details bool) {
 		command.Field(out, "Role", r.Role)
 		command.Field(out, "Approver", r.Approver)
 	}
-	command.Field(out, "Requested", (time.Duration(r.RequestedSeconds) * time.Second).String())
-	command.Field(out, "Termination", fmt.Sprintf("%s (%s)", utc(r.TerminationObservedAt), r.Cause))
+	command.Field(out, "Requested", command.Duration(time.Duration(r.RequestedSeconds)*time.Second))
+	command.Field(out, "Termination", fmt.Sprintf("%s (%s)", command.UTC(r.TerminationObservedAt), r.Cause))
 	if r.Cleanup == lease.Closed {
 		if r.Service != "" {
 			command.Field(out, "Verified cleanup", "Firewall access, WireGuard peer, private service")
@@ -225,7 +228,7 @@ func printReceipt(out io.Writer, r admission.AuditReceipt, details bool) {
 	if r.ActiveObservedAt == 0 {
 		command.Field(out, "Connection", "Unobserved")
 	} else {
-		command.Field(out, "Connection", (time.Duration(r.ActualSeconds)*time.Second).String()+" observed")
+		command.Field(out, "Connection", command.Duration(time.Duration(r.ActualSeconds)*time.Second)+" observed")
 	}
 	if r.RevocationBlock != (common.Hash{}) {
 		command.Field(out, "Revocation block", r.RevocationBlock.Hex())

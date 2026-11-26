@@ -1,5 +1,6 @@
 import { actions, panel, primary } from "./classes";
 import { useState } from "react";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import type { Door } from "../api";
 import type { Confirm } from "./ConfirmDialog";
 import { Fields } from "./Fields";
@@ -24,10 +25,17 @@ export function Rotation({
   const [error, setError] = useState("");
 
   return (
-    <details className={panel}>
-      <summary>Audit membership</summary>
+    <details className={panel + " group"}>
+      <summary>
+        <CaretRightIcon
+          size={14}
+          aria-hidden
+          className="motion-safe:transition-transform motion-safe:duration-180 group-open:rotate-90"
+        />
+        Rotate audit membership
+      </summary>
       <form
-        className="grid gap-2 [&>label:not(:last-of-type)]:grid [&>label:not(:last-of-type)]:gap-1 [&>p]:mb-2 [&>p]:text-muted"
+        className="mt-2 grid gap-2 motion-safe:animate-[reveal_180ms_ease-out] [&>label:not(:last-of-type)]:grid [&>label:not(:last-of-type)]:gap-1 [&>p]:mb-2 [&>p]:text-muted"
         onSubmit={(event) => {
           event.preventDefault();
           const accounts = clear
@@ -53,7 +61,9 @@ export function Rotation({
           }
           setError("");
           confirm({
-            title: "Request rotation",
+            title: "Rotate audit membership",
+            confirmLabel: "Request rotation",
+            busyLabel: "Sending…",
             path: "rotation",
             body: { door: door.target, epoch, members: accounts, clear },
             scope: (
@@ -106,13 +116,14 @@ export function Rotation({
         </label>
         <p id="epoch-help">
           {latestEpoch > 0
-            ? `Highest receipt epoch seen: ${latestEpoch}. Confirm the Door's committed epoch in its log.`
-            : "Check the Door log for the current epoch. Use 0 for the first rotation."}
+            ? `Latest receipt epoch: ${latestEpoch}. Confirm the Door's committed epoch in its log.`
+            : "Check the Door log for the current epoch (0 for first rotation)."}
         </p>
         <label>
           Auditor accounts{" "}
           <textarea
             className="w-full resize-y"
+            placeholder="qor1..."
             value={members}
             onChange={(event) => {
               setMembers(event.target.value);
@@ -126,7 +137,7 @@ export function Rotation({
           />
         </label>
         <p id="auditor-help">
-          Enter the complete list of Diana accounts, one per line.
+          Enter the full list of Diana accounts, one per line.
         </p>
         <label className="flex min-h-11 items-center gap-2 [&>input]:size-4.5 [&>input]:accent-action">
           <input

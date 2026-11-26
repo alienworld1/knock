@@ -55,7 +55,10 @@ function CopyButton({ value, label }: { value: string; label: string }) {
     <>
       <button
         type="button"
-        className="inline-flex min-h-8 items-center gap-1 px-2 py-1 text-xs max-md:min-h-11"
+        className={
+          "inline-flex min-h-8 items-center gap-1 px-2 py-1 text-xs max-md:min-h-11" +
+          (status === "copied" ? " border-success/70 text-success" : "")
+        }
         aria-label={"Copy " + label}
         onClick={() => void copy()}
       >

@@ -134,7 +134,7 @@ func (c *operatorConsole) inspectDoor(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		consoleError(w, 503, "Couldn't verify the Door Card and current policy. Check the Card and try again.")
+		consoleError(w, 503, "Couldn't verify this Door Card on Diana. Check the Card and try again.")
 	}
 }
 
@@ -255,9 +255,13 @@ func (c *operatorConsole) decision(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, errOperatorUnauthorized):
 		consoleError(w, 403, "This identity can't decide requests for this Door.")
 	case err != nil:
-		consoleError(w, 409, "Couldn't confirm decision delivery. Refresh the request before continuing.")
+		consoleError(w, 409, "Couldn't confirm delivery. Refresh the request before trying again.")
 	default:
-		consoleJSON(w, 200, map[string]string{"message": "Decision sent. Waiting for the Door to verify it."})
+		sentMessage := "Approval sent. Waiting for the Door to verify it."
+		if outcome == admission.Denied {
+			sentMessage = "Denial sent. Waiting for the Door to verify it."
+		}
+		consoleJSON(w, 200, map[string]string{"message": sentMessage})
 	}
 }
 
@@ -313,9 +317,9 @@ func (c *operatorConsole) sessions(w http.ResponseWriter, r *http.Request) {
 	}
 	message := ""
 	if loadErr != nil {
-		message = "Session updates unavailable. Check Diana and the Door's Mailbox."
+		message = "Couldn't load session updates. Check Diana and the Mailbox."
 	} else if err != nil {
-		message = "Current Door policy is unavailable. Revocation is disabled until verification returns."
+		message = "Couldn't verify Door policy. Revocation is disabled until verification returns."
 	}
 	consoleJSON(w, 200, struct {
 		Sessions []consoleSession `json:"sessions"`
@@ -372,7 +376,7 @@ func (c *operatorConsole) revoke(w http.ResponseWriter, r *http.Request) {
 		consoleError(w, 409, "Couldn't confirm revocation. Check the registry and wait for signed Door status.")
 	default:
 		c.revocations.Store(id, "Registry revocation confirmed")
-		consoleJSON(w, 200, map[string]string{"message": "Registry revocation confirmed. Waiting for the Door to verify closure."})
+		consoleJSON(w, 200, map[string]string{"message": "Revocation confirmed on Diana. Waiting for the Door to verify cleanup."})
 	}
 }
 
@@ -383,7 +387,7 @@ func (c *operatorConsole) history(w http.ResponseWriter, r *http.Request) {
 	}
 	message := ""
 	if err != nil {
-		message = "Receipt updates unavailable. Check Diana and the Door's Mailbox."
+		message = "Couldn't load receipt updates. Check Diana and the Mailbox."
 	}
 	consoleJSON(w, 200, struct {
 		Receipts []admission.AuditReceipt `json:"receipts"`
@@ -446,5 +450,5 @@ func (c *operatorConsole) rotate(w http.ResponseWriter, r *http.Request) {
 		consoleError(w, 409, "Couldn't confirm rotation delivery. Check the Door log before sending another.")
 		return
 	}
-	consoleJSON(w, 200, map[string]string{"message": "Rotation requested. Check the Door log for the committed epoch."})
+	consoleJSON(w, 200, map[string]string{"message": "Rotation requested. Check the Door log to confirm the new epoch."})
 }

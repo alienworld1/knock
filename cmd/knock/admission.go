@@ -70,7 +70,7 @@ func (s *settings) requestFlags(root *cobra.Command) {
 				return command.Exit(2, fmt.Errorf("enter a printable reason of up to %d bytes", admission.MaxReason))
 			}
 		}
-		command.Wait(cmd.ErrOrStderr(), "Resolving Door…")
+		command.Wait(cmd.ErrOrStderr(), fmt.Sprintf("Resolving %s…", args[0]))
 		return s.withDoor(cmd, args[0], func(ctx context.Context, evm *chain.EVM, card door.Card) error {
 			if s.mailbox != "" && s.mailbox != card.Details.Mailbox {
 				return command.Exit(3, errors.New("the Mailbox origin differs from the signed Door Card"))
@@ -107,13 +107,19 @@ func (s *settings) requestFlags(root *cobra.Command) {
 					}
 				}
 			}
+			doorDisplay := card.Details.Account
+			if args[0] != card.Details.Account {
+				doorDisplay = fmt.Sprintf("%s (%s)", args[0], card.Details.Account)
+			}
 			errOut := cmd.ErrOrStderr()
-			command.OK(errOut, "Request sealed and sent")
-			command.Field(errOut, "Door", card.Details.Account)
+			command.OK(errOut, "Request sent")
+			fmt.Fprintln(errOut)
+			command.Field(errOut, "Door", doorDisplay)
 			command.Field(errOut, "Role", role)
-			command.Field(errOut, "Duration", duration.String())
+			command.Field(errOut, "Duration", command.Duration(duration))
 			command.Field(errOut, "Request", request.ID().Hex())
-			command.Field(errOut, "Decide by", request.Deadline().UTC().Format("15:04:05")+" UTC")
+			command.Field(errOut, "Decide by", command.UTC(request.Deadline().Unix()))
+			fmt.Fprintln(errOut)
 			command.Wait(errOut, "Waiting for approval…")
 			return waitForDecision(cmd, authority, relay, request, nil)
 		})
@@ -141,7 +147,7 @@ func waitForDecision(cmd *cobra.Command, authority admission.Authority, relay *m
 			case errors.Is(err, admission.ErrInvalid):
 				continue
 			case errors.Is(err, admission.ErrExpired):
-				return command.Exit(4, admission.ErrExpired)
+				return command.Exit(4, fmt.Errorf("%w. No connection was opened.", admission.ErrExpired))
 			case err != nil:
 				verificationError = true
 				continue
@@ -152,7 +158,7 @@ func waitForDecision(cmd *cobra.Command, authority admission.Authority, relay *m
 			stop()
 			switch response.Outcome {
 			case admission.Denied:
-				return command.Exit(4, errors.New("Request denied"))
+				return command.Exit(4, errors.New("Request denied. No connection was opened."))
 			case admission.ProvisionFailed:
 				if request.Metered() {
 					return command.Exit(6, errPaidProvisioning)
@@ -161,7 +167,7 @@ func waitForDecision(cmd *cobra.Command, authority admission.Authority, relay *m
 			case admission.Ready:
 				defer clear(response.Connection.PSK[:])
 				errOut := cmd.ErrOrStderr()
-				command.OK(errOut, fmt.Sprintf("Access granted · Expires %s UTC", response.Deadline.UTC().Format("15:04:05")))
+				command.OK(errOut, fmt.Sprintf("Access granted (expires %s UTC)", response.Deadline.UTC().Format("15:04:05")))
 				command.Wait(errOut, "Connecting…")
 				err := request.Connect(cmd.Context(), response, lease.Streams{
 					In: cmd.InOrStdin(), Out: cmd.OutOrStdout(), Err: errOut, OnConnected: connected,
@@ -180,7 +186,7 @@ func waitForDecision(cmd *cobra.Command, authority admission.Authority, relay *m
 			failed = failures != 0
 		}
 		if failed && failures == 0 && ctx.Err() == nil {
-			fmt.Fprintln(cmd.ErrOrStderr(), statusUnavailable)
+			command.Warn(cmd.ErrOrStderr(), statusUnavailable)
 		}
 		if failed {
 			failures = min(failures+1, 3)
@@ -197,7 +203,7 @@ func waitForDecision(cmd *cobra.Command, authority admission.Authority, relay *m
 			if failures != 0 {
 				return command.Exit(8, fmt.Errorf("Request deadline passed. %s", outcomeUnavailable))
 			}
-			return command.Exit(4, admission.ErrExpired)
+			return command.Exit(4, fmt.Errorf("%w. No connection was opened.", admission.ErrExpired))
 		case <-timer.C:
 		}
 	}
@@ -205,7 +211,7 @@ func waitForDecision(cmd *cobra.Command, authority admission.Authority, relay *m
 
 func (s *settings) publishRecipientCommand() *cobra.Command {
 	return &cobra.Command{
-		Use: "publish", Short: "Publish your registered recipient card to the Mailbox", Args: cobra.NoArgs,
+		Use: "publish", Short: "Publish your recipient card to a Mailbox", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if _, err := protocol.Origin(s.mailbox); err != nil {
 				return command.Exit(2, err)
@@ -238,7 +244,7 @@ func (s *settings) publishRecipientCommand() *cobra.Command {
 }
 
 func (s *settings) requestsCommand() *cobra.Command {
-	requests := &cobra.Command{Use: "requests", Short: "Review requests addressed to your identity"}
+	requests := &cobra.Command{Use: "requests", Short: "Review incoming access requests"}
 	for _, mode := range []string{"list", "show"} {
 		var asJSON bool
 		use, short, args := mode, "List verified requests", cobra.NoArgs
@@ -266,11 +272,15 @@ func (s *settings) requestsCommand() *cobra.Command {
 					if target != (common.Hash{}) {
 						printReview(cmd.OutOrStdout(), reviews[0])
 					} else if len(reviews) == 0 {
-						fmt.Fprintln(cmd.OutOrStdout(), "No requests")
+						fmt.Fprintln(cmd.OutOrStdout(), "No pending requests.")
 					} else {
 						for _, r := range summaries {
-							fmt.Fprintf(cmd.OutOrStdout(), "%s  %s  %-11s  %-6s  until %s UTC\n", r.ID.Hex(), r.Requester, r.Role,
-								time.Duration(r.Seconds)*time.Second, r.Deadline.UTC().Format("15:04:05"))
+							scope := r.Role
+							if r.Service != "" {
+								scope = r.Service
+							}
+							fmt.Fprintf(cmd.OutOrStdout(), "%s  %s  %-11s  %-7s  until %s\n", r.ID.Hex(), r.Requester, scope,
+								command.Duration(time.Duration(r.Seconds)*time.Second), command.UTC(r.Deadline.Unix()))
 						}
 					}
 					return nil
@@ -285,9 +295,13 @@ func (s *settings) requestsCommand() *cobra.Command {
 
 func (s *settings) decisionCommand(verb string, outcome admission.Outcome) *cobra.Command {
 	var yes bool
-	short := "Approve a verified request as reviewed"
+	short := "Grant a verified request"
+	actionVerb := "grant"
+	sentMessage := "Approval sent. Waiting for the Door to verify it."
 	if verb == "deny" {
-		short = "Deny a verified request as reviewed"
+		short = "Deny a verified request"
+		actionVerb = "deny"
+		sentMessage = "Denial sent. Waiting for the Door to verify it."
 	}
 	cmd := &cobra.Command{
 		Use: verb + " <request-id>", Short: short, Args: cobra.ExactArgs(1),
@@ -303,7 +317,7 @@ func (s *settings) decisionCommand(verb string, outcome admission.Outcome) *cobr
 				review := reviews[0]
 				if !yes {
 					printReview(cmd.ErrOrStderr(), review)
-					fmt.Fprintf(cmd.ErrOrStderr(), "Type yes to %s this request: ", verb)
+					fmt.Fprintf(cmd.ErrOrStderr(), "Type yes to %s this request: ", actionVerb)
 					answer, err := bufio.NewReader(io.LimitReader(cmd.InOrStdin(), 64)).ReadString('\n')
 					if err != nil || strings.TrimSpace(answer) != "yes" {
 						return command.Exit(2, errors.New("Decision canceled"))
@@ -312,7 +326,7 @@ func (s *settings) decisionCommand(verb string, outcome admission.Outcome) *cobr
 				if err := s.sendDecision(ctx, authority, relay, keys, review, outcome); err != nil {
 					return err
 				}
-				fmt.Fprintln(cmd.OutOrStdout(), "Decision sent. Waiting for the Door to verify it.")
+				fmt.Fprintln(cmd.OutOrStdout(), sentMessage)
 				return nil
 			})
 		},
@@ -331,14 +345,18 @@ func requestTarget(args []string) (common.Hash, error) {
 
 func printReview(out io.Writer, review admission.Review) {
 	r := review.Summary()
-	command.Field(out, "Verified request", r.ID.Hex())
+	command.Field(out, "Request", r.ID.Hex())
 	command.Field(out, "Door", r.Door)
 	command.Field(out, "Requester", r.Requester)
-	command.Field(out, "Service", r.Service)
-	command.Field(out, "Role", r.Role)
-	command.Field(out, "Duration", (time.Duration(r.Seconds) * time.Second).String())
+	if r.Service != "" {
+		command.Field(out, "Service", r.Service)
+	}
+	if r.Role != "" {
+		command.Field(out, "Role", r.Role)
+	}
+	command.Field(out, "Duration", command.Duration(time.Duration(r.Seconds)*time.Second))
 	command.Field(out, "Reason", review.Reason())
-	command.Field(out, "Deadline", r.Deadline.UTC().Format(time.RFC3339))
+	command.Field(out, "Decide by", command.UTC(r.Deadline.Unix()))
 }
 
 func (s *settings) withReviews(cmd *cobra.Command, target common.Hash, use func(context.Context, admission.Diana, *mailbox.Client, *identity.Keys, []admission.Review) error) error {

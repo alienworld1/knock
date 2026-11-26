@@ -1,12 +1,15 @@
 import {
   row,
+  rowCaret,
   rowTitle,
   rows,
   section,
   sectionHeading,
+  splitWorkspace,
 } from "../components/classes";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { endpoint, history, type Door, type DoorPolicy } from "../api";
 import type { Confirm } from "../components/ConfirmDialog";
 import { Notice } from "../components/Notice";
@@ -34,15 +37,22 @@ export function History({
     (a, b) => b.CleanupObservedAt - a.CleanupObservedAt,
   );
   const selected = items.find((item) => item.ID === selection) ?? items[0];
-  if (selected && selected.ID !== selection) setSelection(selected.ID);
+  useEffect(() => {
+    if (!selection && items.length > 0) setSelection(items[0].ID);
+  }, [selection, items]);
   const latestEpoch = items.reduce((max, item) => Math.max(max, item.Epoch), 0);
 
   return (
     <section className={section}>
       <div className={sectionHeading}>
         <h2>Verified receipts</h2>
-        <button type="button" onClick={result.retry}>
-          <ArrowClockwiseIcon size={16} aria-hidden /> Refresh
+        <button
+          type="button"
+          disabled={result.refreshing}
+          onClick={result.retry}
+        >
+          <ArrowClockwiseIcon size={16} aria-hidden />{" "}
+          {result.refreshing ? "Checking…" : "Refresh"}
         </button>
       </div>
       {result.loading ? <Notice>Loading and verifying receipts…</Notice> : null}
@@ -51,51 +61,58 @@ export function History({
         <Notice>No verified receipts for this identity.</Notice>
       ) : null}
       {items.length ? (
-        <ul className={rows}>
-          {items.map((item) => {
-            const corrected =
-              !zero.test(item.Corrects) && Boolean(item.Corrects);
-            return (
-              <li key={item.ID}>
-                <button
-                  type="button"
-                  className={row}
-                  aria-pressed={selected?.ID === item.ID}
-                  onClick={() => setSelection(item.ID)}
-                >
-                  <span>
-                    <span className={rowTitle}>
-                      {item.Service
-                        ? "Private service · " + item.Service
-                        : "SSH · " + item.Role}
-                    </span>
-                    <code>
-                      {short(item.ID)} · Epoch {item.Epoch}
-                      {corrected ? " · Correction" : ""}
-                    </code>
-                  </span>
-                  <time
-                    dateTime={new Date(
-                      item.CleanupObservedAt * 1000,
-                    ).toISOString()}
+        <div className={splitWorkspace}>
+          <ul className={rows}>
+            {items.map((item) => {
+              const corrected =
+                !zero.test(item.Corrects) && Boolean(item.Corrects);
+              return (
+                <li key={item.ID}>
+                  <button
+                    type="button"
+                    className={row}
+                    aria-pressed={selected?.ID === item.ID}
+                    onClick={() => setSelection(item.ID)}
                   >
-                    {utc(item.CleanupObservedAt)}
-                  </time>
-                  <StatusBadge
-                    label={
-                      item.Cleanup === "Closed"
-                        ? "Closure verified"
-                        : "Cleanup incomplete"
-                    }
-                    tone={item.Cleanup === "Closed" ? "success" : "danger"}
-                  />
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+                    <span>
+                      <span className={rowTitle}>
+                        {item.Service
+                          ? "Private service · " + item.Service
+                          : "SSH · " + item.Role}
+                      </span>
+                      <code>
+                        {short(item.ID)} · Epoch {item.Epoch}
+                        {corrected ? " · Correction" : ""}
+                      </code>
+                    </span>
+                    <time
+                      dateTime={new Date(
+                        item.CleanupObservedAt * 1000,
+                      ).toISOString()}
+                    >
+                      {utc(item.CleanupObservedAt)}
+                    </time>
+                    <StatusBadge
+                      label={
+                        item.Cleanup === "Closed"
+                          ? "Closure verified"
+                          : "Cleanup incomplete"
+                      }
+                      tone={item.Cleanup === "Closed" ? "success" : "danger"}
+                    />
+                    <CaretRightIcon
+                      size={16}
+                      aria-hidden
+                      className={rowCaret}
+                    />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {selected ? <ReceiptDetail receipt={selected} /> : null}
+        </div>
       ) : null}
-      {selected ? <ReceiptDetail receipt={selected} /> : null}
       {card?.canRotate ? (
         <Rotation
           door={door}

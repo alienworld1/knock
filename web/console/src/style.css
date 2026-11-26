@@ -20,6 +20,28 @@
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
 
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dialog-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @layer base {
   :root {
     color-scheme: dark;
@@ -60,14 +82,14 @@
     @apply motion-safe:transition-colors motion-safe:duration-120;
   }
   button {
-    @apply cursor-pointer enabled:hover:bg-elevated;
+    @apply cursor-pointer enabled:hover:bg-elevated motion-safe:enabled:active:translate-y-px;
   }
   button:disabled,
   textarea:disabled {
     @apply cursor-default text-muted;
   }
   summary {
-    @apply min-h-10 cursor-pointer py-2 text-brass max-md:min-h-11;
+    @apply inline-flex min-h-10 cursor-pointer list-none items-center gap-1.5 py-2 text-brass max-md:min-h-11 [&::-webkit-details-marker]:hidden;
   }
   :focus-visible {
     @apply outline-2 outline-offset-3 outline-focus;
@@ -75,11 +97,16 @@
   dialog {
     @apply m-auto w-full max-w-[min(520px,calc(100%-32px))] max-h-[calc(100dvh-32px)] rounded-lg border border-control bg-surface p-5 text-ink shadow-xl;
   }
+  @media (prefers-reduced-motion: no-preference) {
+    dialog[open] {
+      animation: dialog-reveal 180ms ease-out;
+    }
+  }
   dialog::backdrop {
     @apply bg-black/65;
   }
   progress {
-    @apply my-2 block h-2.5 w-full appearance-none rounded-sm border border-control bg-canvas text-action;
+    @apply my-2.5 block h-2 w-full appearance-none rounded-sm border border-seam bg-canvas text-action;
   }
   progress::-webkit-progress-bar {
     @apply rounded-sm bg-canvas;

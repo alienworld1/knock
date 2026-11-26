@@ -1,8 +1,10 @@
-import { actions, danger, primary } from "./classes";
+import { danger, primary } from "./classes";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api, message } from "../api";
 export type Action = {
   title: string;
+  confirmLabel?: string;
+  busyLabel?: string;
   scope: ReactNode;
   path: "decision" | "revoke" | "rotation";
   body: object;
@@ -59,9 +61,11 @@ export function ConfirmDialog({
         if (!inFlight.current) close();
       }}
     >
-      <h2 id="confirm-heading">{action.title}</h2>
+      <h2 id="confirm-heading" className="mb-3">
+        {action.title}
+      </h2>
       {action.scope}
-      <div className={actions}>
+      <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-seam pt-4">
         <button type="button" autoFocus onClick={close} disabled={busy}>
           Cancel
         </button>
@@ -71,7 +75,9 @@ export function ConfirmDialog({
           disabled={busy}
           onClick={() => void submit()}
         >
-          {busy ? "Sending…" : action.title}
+          {busy
+            ? (action.busyLabel ?? "Sending…")
+            : (action.confirmLabel ?? action.title)}
         </button>
       </div>
       <span className="sr-only" role="status">

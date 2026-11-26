@@ -44,7 +44,7 @@ func formatQOR(uqor uint64) string {
 }
 
 func (s *settings) buyPass(cmd *cobra.Command, target string, duration time.Duration, price uint64) error {
-	command.Wait(cmd.ErrOrStderr(), "Resolving Door…")
+	command.Wait(cmd.ErrOrStderr(), fmt.Sprintf("Resolving %s…", target))
 	return s.withDoor(cmd, target, func(ctx context.Context, evm *chain.EVM, card door.Card) error {
 		d := card.Details
 		if d.Mode != door.Metered || !d.Policy.Enabled || uint64(duration/time.Second) != d.Policy.MaxDurationSeconds {
@@ -66,10 +66,15 @@ func (s *settings) buyPass(cmd *cobra.Command, target string, duration time.Dura
 		out := cmd.ErrOrStderr()
 		command.OK(out, "Door identity verified")
 		offer := d.Policy.Offer
-		command.Field(out, "Door", d.Account)
+		doorDisplay := d.Account
+		if target != d.Account {
+			doorDisplay = fmt.Sprintf("%s (%s)", target, d.Account)
+		}
+		fmt.Fprintln(out)
+		command.Field(out, "Door", doorDisplay)
 		command.Field(out, "Service", offer.Service)
-		command.Field(out, "Duration", duration.String())
-		command.Field(out, "Price", formatQOR(offer.PriceUQOR)+" test QOR on Diana (network fees additional)")
+		command.Field(out, "Duration", command.Duration(duration))
+		command.Field(out, "Price", formatQOR(offer.PriceUQOR)+" test QOR on Diana testnet (+ network fees)")
 		switch {
 		case cmd.Flags().Changed("price-uqor"):
 			if price != offer.PriceUQOR {
@@ -78,10 +83,10 @@ func (s *settings) buyPass(cmd *cobra.Command, target string, duration time.Dura
 		case !term.IsTerminal(int(os.Stdin.Fd())):
 			return command.Exit(2, errors.New("confirm the payment in a terminal or supply the exact --price-uqor"))
 		default:
-			fmt.Fprint(out, "Purchase one pass? [y/N] ")
+			fmt.Fprint(out, "Buy this pass? [y/N] ")
 			line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 			if err != nil || !strings.EqualFold(strings.TrimSpace(line), "y") {
-				fmt.Fprintln(out, "Purchase cancelled.")
+				fmt.Fprintln(out, "Purchase canceled.")
 				return nil
 			}
 		}
@@ -120,7 +125,9 @@ func (s *settings) buyPass(cmd *cobra.Command, target string, duration time.Dura
 					return err
 				}
 				record = saved
-				fmt.Fprintf(out, "Submitting payment %s · Pass %s\n", hash.Hex(), commitment.Hex())
+				command.Wait(out, "Submitting payment…")
+				command.Field(out, "Transaction", hash.Hex())
+				command.Field(out, "Pass", commitment.Hex())
 				return nil
 			})
 		pass, err := evm.Payment(call, d.Registry, commitment)
@@ -140,7 +147,8 @@ func (s *settings) buyPass(cmd *cobra.Command, target string, duration time.Dura
 			return command.Exit(5, fmt.Errorf("%s · Transaction %s · Run knock payment show %s before paying again",
 				message, record.Transaction.Hex(), commitment.Hex()))
 		}
-		command.OK(out, "Payment confirmed · Transaction "+record.Transaction.Hex())
+		command.OK(out, "Payment confirmed")
+		command.Field(out, "Transaction", record.Transaction.Hex())
 		command.Field(out, "Session", record.Session.Hex())
 		command.Wait(out, "Waiting for access…")
 		connected := false
@@ -227,10 +235,10 @@ type paymentDisplay struct {
 }
 
 func (s *settings) paymentCommand() *cobra.Command {
-	group := &cobra.Command{Use: "payment", Short: "Inspect Diana payments"}
+	group := &cobra.Command{Use: "payment", Short: "Inspect service pass payments"}
 	var asJSON bool
 	show := &cobra.Command{
-		Use: "show <pass>", Short: "Verify the outcome of a service pass payment", Args: cobra.ExactArgs(1),
+		Use: "show <pass>", Short: "Check the status of a service pass payment", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var commitment common.Hash
 			if err := commitment.UnmarshalText([]byte(args[0])); err != nil || commitment == (common.Hash{}) {
@@ -303,7 +311,7 @@ func verifyPaymentDisplay(ctx context.Context, record paymentRecord, result *pay
 }
 
 func printPaymentDisplay(out io.Writer, result paymentDisplay) {
-	command.Field(out, "Network", "Diana")
+	command.Field(out, "Network", "Diana testnet")
 	command.Field(out, "Pass", result.Pass.Hex())
 	command.Field(out, "Transaction", result.Transaction.Hex())
 	switch result.State {

@@ -36,7 +36,7 @@ type sessionDisplay struct {
 func (s *settings) sessionsCommand() *cobra.Command {
 	var target string
 	var asJSON bool
-	group := &cobra.Command{Use: "sessions", Short: "Inspect verified Door session status"}
+	group := &cobra.Command{Use: "sessions", Short: "Inspect verified session status"}
 	group.PersistentFlags().StringVar(&target, "door", "", "trusted Door account or alias")
 	group.PersistentFlags().BoolVar(&asJSON, "json", false, "write session status as JSON")
 	run := func(cmd *cobra.Command, args []string) error {
@@ -51,7 +51,7 @@ func (s *settings) sessionsCommand() *cobra.Command {
 		results, err := s.sessionStatus(cmd.Context(), selected)
 		now := time.Now()
 		if !asJSON && err != nil {
-			fmt.Fprintln(cmd.ErrOrStderr(), "Session updates unavailable. Showing last verified status if available.")
+			command.Warn(cmd.ErrOrStderr(), "Couldn't load session updates. Showing last verified status.")
 		}
 		slices.SortFunc(results, func(a, b admission.SessionStatus) int { return strings.Compare(a.Session.Hex(), b.Session.Hex()) })
 		output := make([]sessionDisplay, 0, len(results))
@@ -79,7 +79,7 @@ func (s *settings) sessionsCommand() *cobra.Command {
 				printSession(cmd.OutOrStdout(), item)
 			}
 			if len(output) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No verified session status")
+				fmt.Fprintln(cmd.OutOrStdout(), "No sessions found.")
 			}
 		}
 		if err != nil {
@@ -92,7 +92,7 @@ func (s *settings) sessionsCommand() *cobra.Command {
 	}
 	group.AddCommand(
 		&cobra.Command{Use: "list", Short: "List observed sessions", Args: cobra.NoArgs, RunE: run},
-		&cobra.Command{Use: "show <session-id>", Short: "Show the last verified session observation", Args: cobra.ExactArgs(1), RunE: run},
+		&cobra.Command{Use: "show <session-id>", Short: "Show the latest verified session status", Args: cobra.ExactArgs(1), RunE: run},
 	)
 	return group
 }
@@ -200,31 +200,30 @@ func printSession(out io.Writer, item sessionDisplay) {
 	command.Field(out, "Session", item.Session.Hex())
 	command.Field(out, "State", item.State)
 	if record := item.LastVerified; record != nil {
-		utc := func(unix int64) string { return time.Unix(unix, 0).UTC().Format(time.RFC3339) }
 		scope := "SSH · " + record.Role
 		if record.Service != "" {
 			scope = "Private service · " + record.Service
 		}
 		command.Field(out, "Scope", scope)
-		expiry := utc(record.Deadline)
+		expiry := command.UTC(record.Deadline)
 		if (item.State == string(lease.Active) || item.State == string(lease.Ready)) && record.Deadline > time.Now().Unix() {
 			rem := time.Until(time.Unix(record.Deadline, 0)).Truncate(time.Second)
-			expiry = fmt.Sprintf("%s (%s remaining)", expiry, rem)
+			expiry = fmt.Sprintf("%s (%s remaining)", expiry, command.Duration(rem))
 		}
 		command.Field(out, "Expires", expiry)
-		command.Field(out, "Last verified", utc(record.Observed))
+		command.Field(out, "Last verified", command.UTC(record.Observed))
 		command.Field(out, "Request", record.RequestID.Hex())
 		if item.State == "Unknown" {
 			command.Field(out, "Last known state", string(record.State)+" (closure unknown)")
 		}
 		if record.RevokedAt != 0 {
-			command.Field(out, "Revocation", fmt.Sprintf("Observed %s · Block %s", utc(record.RevokedAt), record.RevokedBlock.Hex()))
+			command.Field(out, "Revocation", fmt.Sprintf("Observed %s · Block %s", command.UTC(record.RevokedAt), record.RevokedBlock.Hex()))
 		}
 		if record.ClosedAt != 0 {
 			if record.Cause == "Revoked" {
-				command.Field(out, "Closure", "Revocation enforced "+utc(record.ClosedAt))
+				command.Field(out, "Closure", "Revocation enforced "+command.UTC(record.ClosedAt))
 			} else {
-				command.Field(out, "Closure", "Verified "+utc(record.ClosedAt))
+				command.Field(out, "Closure", "Verified "+command.UTC(record.ClosedAt))
 			}
 		}
 		if record.ReceiptState != "" {

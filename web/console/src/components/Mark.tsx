@@ -1,6 +1,6 @@
 export function Mark() {
   return (
-    <div className="flex items-center gap-2 px-2 text-brass [&>span]:text-2xl/8 [&>span]:font-semibold [&>span]:text-ink">
+    <div className="flex items-center gap-2 px-2 text-brass [&>span]:text-2xl/8 [&>span]:font-semibold [&>span]:tracking-tight [&>span]:text-ink">
       <svg
         viewBox="0 0 24 24"
         width="26"

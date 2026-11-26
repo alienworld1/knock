@@ -1,9 +1,11 @@
-import { panel } from "./classes";
+import { panel, panelHeading, panelIcon } from "./classes";
 import type { ReactNode } from "react";
+import { ReceiptIcon } from "@phosphor-icons/react/Receipt";
 import type { Receipt } from "../api";
 import { Copyable } from "./Copyable";
 import { Evidence, Fields } from "./Fields";
-import { duration, utc } from "../format";
+import { StatusBadge } from "./Status";
+import { duration, short, utc } from "../format";
 
 const zero = /^0x0+$/;
 
@@ -14,25 +16,39 @@ export function ReceiptDetail({ receipt: r }: { receipt: Receipt }) {
         ? "Firewall, WireGuard peer, private service"
         : "Firewall, WireGuard peer, SSH authorization, contained workloads"
       : undefined;
+  const corrected = !zero.test(r.Corrects) && Boolean(r.Corrects);
 
   return (
     <article className={panel}>
-      <h3>Receipt details</h3>
+      <div className={panelHeading}>
+        <div className={panelIcon}>
+          <ReceiptIcon size={22} aria-hidden />
+        </div>
+        <div>
+          <h3>Receipt details</h3>
+          <code className="text-muted">
+            {short(r.ID)} · Epoch {r.Epoch}
+            {corrected ? " · Correction" : ""}
+          </code>
+        </div>
+        <StatusBadge
+          label={
+            r.Cleanup === "Closed" ? "Closure verified" : "Cleanup incomplete"
+          }
+          tone={r.Cleanup === "Closed" ? "success" : "danger"}
+        />
+      </div>
       <Fields
         items={[
           [
-            "Outcome",
-            r.Cleanup === "Closed" ? "Closure verified" : "Cleanup incomplete",
+            "Scope",
+            r.Service ? "Private service · " + r.Service : "SSH · " + r.Role,
           ],
           ["Termination", r.Cause],
           ["Cleanup observed", utc(r.CleanupObservedAt)],
           ...(verifiedCleanup
             ? [["Verified cleanup", verifiedCleanup] as [string, ReactNode]]
             : []),
-          [
-            "Scope",
-            r.Service ? "Private service · " + r.Service : "SSH · " + r.Role,
-          ],
           ["Requested duration", duration(r.RequestedSeconds)],
           [
             "Connection",

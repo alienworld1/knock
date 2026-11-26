@@ -71,11 +71,11 @@ export function Doors({
                     ["Service", card.service],
                     ["Pass duration", duration(card.limit)],
                     ["Price", card.price + " test QOR"],
-                    ["Your access", operatorAccess(card, identity)],
+                    ["Your permissions", operatorAccess(card, identity)],
                   ]
                 : [
                     ["Roles", card.roles?.join(", ") || "None"],
-                    ["Access limit", duration(card.limit)],
+                    ["Max duration", duration(card.limit)],
                     ...(card.approvers !== undefined
                       ? [
                           [
@@ -94,7 +94,7 @@ export function Doors({
                           ] as [string, ReactNode],
                         ]
                       : []),
-                    ["Your access", operatorAccess(card, identity)],
+                    ["Your permissions", operatorAccess(card, identity)],
                   ]
             }
           />

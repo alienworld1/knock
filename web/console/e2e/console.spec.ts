@@ -95,17 +95,22 @@ async function fixture(
               : undefined,
           },
         ]);
-      case "/api/decision":
-        delivery = route.request().postDataJSON().decision;
+      case "/api/decision": {
+        const decision = route.request().postDataJSON().decision;
+        delivery = decision;
         return json({
-          message: "Decision sent. Waiting for the Door to verify it.",
+          message:
+            decision === "deny"
+              ? "Denial sent. Waiting for the Door to verify it."
+              : "Approval sent. Waiting for the Door to verify it.",
         });
+      }
       case "/api/revoke":
         phase = pendingRevoke ? "pending" : "closed";
         sessionPolls = 0;
         return json({
           message:
-            "Registry revocation confirmed. Waiting for the Door to verify closure.",
+            "Revocation confirmed on Diana. Waiting for the Door to verify cleanup.",
         });
       case "/api/sessions": {
         if (phase === "pending") {
@@ -145,7 +150,7 @@ async function fixture(
         return denied
           ? route.fulfill({
               status: 503,
-              json: { error: "Receipt updates unavailable." },
+              json: { error: "Couldn't load receipt updates." },
             })
           : json({ receipts });
       default:
@@ -174,7 +179,7 @@ test("operator workflow, keyboard confirmation and real routes", async ({
   await request.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByText("Check host uptime.")).toBeVisible();
-  const approve = page.getByRole("button", { name: "Approve request" });
+  const approve = page.getByRole("button", { name: "Grant 3m", exact: true });
   await approve.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused();
@@ -183,8 +188,15 @@ test("operator workflow, keyboard confirmation and real routes", async ({
   await approve.click();
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Approve request" })
+    .getByRole("button", { name: "Grant 3m" })
     .click();
+  await expect(
+    page.getByText("Approval sent. Waiting for the Door to verify it."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Dismiss notice" }).click();
+  await expect(
+    page.getByText("Approval sent. Waiting for the Door to verify it."),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: /Approval sent/ }),
   ).toBeVisible();
@@ -247,7 +259,7 @@ test("both themes pass axe across Doors, Sessions, and History at 320 px", async
     body.style.zoom = "2";
   });
   await expect(
-    page.getByRole("button", { name: "Approve request", exact: true }),
+    page.getByRole("button", { name: "Grant 3m", exact: true }),
   ).toBeVisible();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
@@ -272,6 +284,12 @@ test("pending revocation transitions to enforced closure and History auto-select
     .getByRole("button", { name: "Revoke access" })
     .click();
   await expect(session.getByRole("status")).toHaveText("Revocation pending");
+  const progressList = session.getByRole("list", {
+    name: "Revocation progress",
+  });
+  await expect(progressList.getByText("Chain confirmed")).toBeVisible();
+  await expect(progressList.getByText("Door observed")).toBeVisible();
+  await expect(progressList.getByText("Cleanup verified")).toBeVisible();
   await expect(page.getByRole("button", { name: "Revoke access" })).toHaveCount(
     0,
   );
@@ -299,7 +317,7 @@ test("denial delivery, empty Doors and unavailable History are distinct", async 
   await fixture(page, { denied: true });
   await page.goto("/");
   await page.getByRole("button", { name: /Waiting for decision/ }).click();
-  await page.getByRole("button", { name: "Deny request" }).click();
+  await page.getByRole("button", { name: "Deny", exact: true }).click();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Deny request" })
@@ -307,7 +325,7 @@ test("denial delivery, empty Doors and unavailable History are distinct", async 
   await expect(page.getByRole("button", { name: /Denial sent/ })).toBeVisible();
   await page.getByRole("link", { name: "History" }).click();
   await expect(
-    page.getByText("Receipt updates unavailable.", { exact: true }),
+    page.getByText("Couldn't load receipt updates.", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText("No verified receipts for this identity."),

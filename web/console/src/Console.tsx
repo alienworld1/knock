@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { DoorIcon } from "@phosphor-icons/react/Door";
 import { ReceiptIcon } from "@phosphor-icons/react/Receipt";
 import { TimerIcon } from "@phosphor-icons/react/Timer";
@@ -73,7 +74,7 @@ export function Console() {
           {views.map(({ name, path, icon: Icon }) => (
             <NavLink
               end
-              className="flex min-h-11 items-center gap-2.5 rounded-sm border border-transparent px-3 py-2 text-start text-ink hover:bg-elevated aria-[current=page]:border-control aria-[current=page]:bg-elevated aria-[current=page]:[&_svg]:text-brass max-md:justify-center max-md:gap-1 max-md:px-1"
+              className="flex min-h-11 items-center gap-2.5 rounded-sm border border-transparent px-3 py-2 text-start text-ink hover:bg-elevated aria-[current=page]:border-control aria-[current=page]:bg-elevated aria-[current=page]:font-medium md:aria-[current=page]:shadow-[inset_3px_0_0_var(--color-brass)] aria-[current=page]:[&_svg]:text-brass max-md:justify-center max-md:gap-1 max-md:px-1"
               to={path}
               key={path}
               onClick={(event) => {
@@ -94,7 +95,7 @@ export function Console() {
         </nav>
         <div className="mt-auto grid gap-1.5 text-muted max-md:col-start-2 max-md:row-start-1 max-md:mt-0 max-md:flex max-md:items-center max-md:gap-2 max-md:[&>select]:px-1.5">
           <p className="text-xs max-md:hidden">
-            Local loopback · Keys stay in knock
+            Local only · Keys stay on this device
           </p>
           <label htmlFor="console-theme">Theme</label>
           <select
@@ -114,7 +115,7 @@ export function Console() {
       </aside>
       <main
         id="workspace"
-        className="grid w-full max-w-5xl content-start gap-4 px-8 pt-7 pb-12 max-md:px-4 max-md:pt-4 max-md:pb-8"
+        className="grid w-full max-w-6xl content-start gap-4 px-8 pt-7 pb-12 max-md:px-4 max-md:pt-4 max-md:pb-8"
       >
         <header className="flex items-start justify-between gap-4 border-b border-seam pb-4 max-md:flex-col max-md:gap-1 [&_p]:text-muted">
           <div>
@@ -124,11 +125,16 @@ export function Console() {
             <p>Diana testnet</p>
           </div>
           {local.data ? (
-            <details className="min-w-0 max-w-[380px] text-end text-muted max-md:text-start">
+            <details className="group min-w-0 max-w-[380px] text-end text-muted max-md:text-start">
               <summary>
+                <CaretRightIcon
+                  size={14}
+                  aria-hidden
+                  className="motion-safe:transition-transform motion-safe:duration-180 group-open:rotate-90"
+                />
                 Operator · <code>{short(local.data.identity)}</code>
               </summary>
-              <div className="mt-1 text-start">
+              <div className="mt-1 text-start motion-safe:animate-[reveal_180ms_ease-out]">
                 <Copyable
                   value={local.data.identity}
                   label="operator account"
@@ -145,7 +151,9 @@ export function Console() {
         ) : null}
         {!door && local.data && !local.error ? (
           <Notice>
-            No Door Cards. Add a signed Card to the configured cards directory.
+            No Door Cards found. Add a signed <code>.card</code> file to your
+            cards directory, or start <code>knock console</code> with{" "}
+            <code>--cards</code>.
           </Notice>
         ) : null}
         {door ? (
@@ -168,7 +176,10 @@ export function Console() {
               </select>
             </div>
             {notice ? (
-              <Notice tone={notice.error ? "error" : "success"}>
+              <Notice
+                tone={notice.error ? "error" : "success"}
+                dismiss={() => setNotice(undefined)}
+              >
                 {notice.text}
               </Notice>
             ) : null}
