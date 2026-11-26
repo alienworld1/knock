@@ -6,6 +6,7 @@ const sessionId = "0x" + "1".repeat(64);
 const account = "qor1" + "a".repeat(42);
 const receiptId = "0x" + "7".repeat(64);
 const newerReceiptId = "0x" + "6".repeat(64);
+const consumptionTx = "0x" + "2".repeat(64);
 
 async function fixture(
   page: Page,
@@ -14,6 +15,7 @@ async function fixture(
     empty = false,
     pendingRevoke = false,
     withReceipt = false,
+    meteredReceipt = false,
   } = {},
 ) {
   const now = Math.floor(Date.now() / 1000);
@@ -34,22 +36,22 @@ async function fixture(
     Request: requestId,
     Session: sessionId,
     Requester: account,
-    Approver: account,
-    Purchase: "0x" + "0".repeat(64),
-    ConsumptionTx: "0x" + "0".repeat(64),
-    Role: "logs",
-    Service: "",
-    Cause: "Revoked",
+    Approver: meteredReceipt ? "" : account,
+    Purchase: "0x" + (meteredReceipt ? "3" : "0").repeat(64),
+    ConsumptionTx: meteredReceipt ? consumptionTx : "0x" + "0".repeat(64),
+    Role: meteredReceipt ? "" : "logs",
+    Service: meteredReceipt ? "private-status" : "",
+    Cause: meteredReceipt ? "Expired" : "Revoked",
     Cleanup: "Closed",
     CleanupObservedAt: now - 5,
     ActiveObservedAt: now - 15,
     TerminationObservedAt: now - 6,
     ActualSeconds: 9,
     RequestedSeconds: 180,
-    RevocationBlock: "0x" + "8".repeat(64),
+    RevocationBlock: "0x" + (meteredReceipt ? "0" : "8").repeat(64),
     Corrects: "0x" + "0".repeat(64),
   };
-  const receipts = withReceipt ? [receipt] : [];
+  const receipts = withReceipt || meteredReceipt ? [receipt] : [];
   await page.route("**/api/**", async (route) => {
     const requestPath = new URL(route.request().url()).pathname;
     const json = (data: unknown) => route.fulfill({ json: data });
@@ -314,6 +316,22 @@ test("denial delivery, empty Doors and unavailable History are distinct", async 
   await fixture(page, { empty: true });
   await page.goto("/");
   await expect(page.getByText(/No Door Cards/)).toBeVisible();
+});
+
+test("metered receipts link to the EVM transaction in the QoreChain Dashboard", async ({
+  page,
+}) => {
+  await fixture(page, { meteredReceipt: true });
+  await page.goto("/history");
+  await page.getByText("Verification details").click();
+  await expect(
+    page.getByRole("link", {
+      name: "Open consumption transaction on Diana explorer",
+    }),
+  ).toHaveAttribute(
+    "href",
+    "https://dashboard.qorechain.io/explorer/tx/" + consumptionTx,
+  );
 });
 
 test("History keeps the receipt in view and copy feedback follows the value", async ({

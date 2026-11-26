@@ -19,10 +19,12 @@ Two authorization policies share one host enforcement and audit lifecycle:
 
 Both Approval and Metered Doors are verified on QoreChain Diana with `KnockRegistry` deployed at `0xd80502c7dfe2a29a087118b81549b9cb267f3b0d`.
 
-- [Contract deployment](https://explore.qore.network/tx/0xa015ceec6fbcc969d9117df573fb852fe5686a49772009003619b95ecd31757b)
-- [SSH session revocation](https://explore.qore.network/tx/0xf8cdcd6e6a1f3eba3a2ec93fb55b2f1c7190ef003f2f0838f9a2b0458e781336)
-- [Metered pass purchase](https://explore.qore.network/tx/0xa49e42248906a06288346cd6f9cea97ef60356941f2f8dff4682c0e7b398942f)
-- [Metered pass consumption](https://explore.qore.network/tx/0xce70c936ddc0863fd51522b102b014a81f41a52a55f5d43c5d7c9108ef8d973f)
+Select **Testnet** in the QoreChain Dashboard to view these transactions.
+
+- [Contract deployment](https://dashboard.qorechain.io/explorer/tx/0xa015ceec6fbcc969d9117df573fb852fe5686a49772009003619b95ecd31757b)
+- [SSH session revocation](https://dashboard.qorechain.io/explorer/tx/0xf8cdcd6e6a1f3eba3a2ec93fb55b2f1c7190ef003f2f0838f9a2b0458e781336)
+- [Metered pass purchase](https://dashboard.qorechain.io/explorer/tx/0xa49e42248906a06288346cd6f9cea97ef60356941f2f8dff4682c0e7b398942f)
+- [Metered pass consumption](https://dashboard.qorechain.io/explorer/tx/0xce70c936ddc0863fd51522b102b014a81f41a52a55f5d43c5d7c9108ef8d973f)
 
 ## Build and check
 

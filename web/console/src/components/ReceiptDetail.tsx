@@ -67,7 +67,7 @@ export function ReceiptDetail({ receipt: r }: { receipt: Receipt }) {
               [
                 "Consumption transaction",
                 r.ConsumptionTx,
-                "https://explore.qore.network/tx/" + r.ConsumptionTx,
+                "https://dashboard.qorechain.io/explorer/tx/" + r.ConsumptionTx,
               ],
               ["Revocation block", r.RevocationBlock, undefined],
               ["Corrects receipt", r.Corrects, undefined],
