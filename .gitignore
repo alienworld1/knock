@@ -12,3 +12,9 @@ agent-docs
 /door.json
 /network.json
 /cards/
+
+/web/console/node_modules/
+/web/console/playwright-report/
+/web/console/test-results/
+/cmd/knock/consoleassets/*
+!/cmd/knock/consoleassets/.keep

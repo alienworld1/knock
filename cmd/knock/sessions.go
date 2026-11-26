@@ -120,6 +120,15 @@ func (s *settings) sessionDoor(target string) (string, error) {
 }
 
 func (s *settings) sessionStatus(ctx context.Context, target string) ([]admission.SessionStatus, error) {
+	keys, err := command.Unlock(command.Profile(s.home, s.profile), "Identity passphrase")
+	if err != nil {
+		return nil, err
+	}
+	defer keys.Clear()
+	return s.loadSessionStatus(ctx, target, keys)
+}
+
+func (s *settings) loadSessionStatus(ctx context.Context, target string, keys *identity.Keys) ([]admission.SessionStatus, error) {
 	card, pin, trusted, err := s.localDoor(target)
 	if err != nil {
 		return nil, err
@@ -127,11 +136,10 @@ func (s *settings) sessionStatus(ctx context.Context, target string) ([]admissio
 	verify, cancelVerify := context.WithTimeout(ctx, 12*time.Second)
 	verification := verifyStatusCard(verify, card, pin, trusted)
 	cancelVerify()
-	keys, err := command.Unlock(command.Profile(s.home, s.profile), "Identity passphrase")
-	if err != nil {
-		return nil, err
-	}
-	defer keys.Clear()
+	return s.readSessionEvidence(ctx, card, keys, verification)
+}
+
+func (s *settings) readSessionEvidence(ctx context.Context, card door.Card, keys *identity.Keys, verification error) ([]admission.SessionStatus, error) {
 	var relay *mailbox.Client
 	if verification == nil {
 		relay, verification = mailbox.NewClient(card.Details.Mailbox, keys)

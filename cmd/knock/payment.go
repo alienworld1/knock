@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -210,9 +211,19 @@ func (r paymentRecord) matches(pass chain.Purchase) bool {
 	return pass.Buyer == r.Buyer && pass.DoorId == r.Door && pass.Offer.Matches(r.Offer) && pass.RedeemBy == r.RedeemBy
 }
 
+type paymentDisplay struct {
+	Version         int          `json:"version"`
+	Pass            common.Hash  `json:"pass"`
+	Transaction     common.Hash  `json:"transaction"`
+	State           string       `json:"state"`
+	ConsumedSession *common.Hash `json:"consumedSession,omitempty"`
+	Service         string       `json:"serviceAccess"`
+}
+
 func (s *settings) paymentCommand() *cobra.Command {
 	group := &cobra.Command{Use: "payment", Short: "Inspect Diana payments"}
-	group.AddCommand(&cobra.Command{
+	var asJSON bool
+	show := &cobra.Command{
 		Use: "show <pass>", Short: "Verify the outcome of a service pass payment", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var commitment common.Hash
@@ -223,47 +234,89 @@ func (s *settings) paymentCommand() *cobra.Command {
 			if err != nil {
 				return command.Exit(8, err)
 			}
+			result := paymentDisplay{Version: 1, Pass: commitment, Transaction: record.Transaction, State: "Unverified", Service: "Unverified"}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Diana · Pass %s\nTransaction %s\n", commitment.Hex(), record.Transaction.Hex())
 			ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
 			defer cancel()
-			evm, err := chain.Connect(ctx, chain.Diana())
-			if err != nil {
-				return command.Exit(5, err)
-			}
-			defer evm.Close()
-			pass, err := evm.Payment(ctx, record.Registry, commitment)
-			if err != nil {
-				return command.Exit(5, err)
-			}
-			if !record.matches(pass) {
-				state, err := evm.PaymentReceipt(ctx, record.Transaction)
-				if err != nil {
-					return command.Exit(5, err)
+			lookupErr := verifyPaymentDisplay(ctx, record, &result)
+			if asJSON {
+				if err := json.NewEncoder(out).Encode(result); err != nil {
+					return command.Exit(8, err)
 				}
-				switch state {
-				case chain.TransactionReverted:
-					fmt.Fprintln(out, "Payment reverted.")
-				case chain.TransactionPending:
-					fmt.Fprintln(out, "Payment pending. Check this reference before paying again.")
-				default:
-					fmt.Fprintln(out, "Payment outcome unverified. Check this reference before paying again.")
-				}
-				return nil
-			}
-			fmt.Fprintln(out, "Payment confirmed.")
-			if pass.SessionRef == record.Session {
-				fmt.Fprintf(out, "Pass consumed · Session %s\n", pass.SessionRef.Hex())
-			}
-			if record.Connected && pass.SessionRef == record.Session {
-				fmt.Fprintln(out, "Private service request verified.")
-			} else if record.Unfulfilled {
-				fmt.Fprintln(out, "Pass unfulfilled. Contact the Door operator with this reference before paying again.")
 			} else {
-				fmt.Fprintln(out, "Service access unverified. Contact the Door operator with this reference before paying again.")
+				printPaymentDisplay(out, result)
+			}
+			if lookupErr != nil {
+				return command.Exit(5, lookupErr)
+			}
+			if result.State != "Confirmed" {
+				return command.SilentExit(5)
 			}
 			return nil
 		},
-	})
+	}
+	show.Flags().BoolVar(&asJSON, "json", false, "write payment status as JSON")
+	group.AddCommand(show)
 	return group
+}
+
+func verifyPaymentDisplay(ctx context.Context, record paymentRecord, result *paymentDisplay) error {
+	evm, err := chain.Connect(ctx, chain.Diana())
+	if err != nil {
+		return err
+	}
+	defer evm.Close()
+	pass, err := evm.Payment(ctx, record.Registry, result.Pass)
+	if err != nil {
+		return err
+	}
+	if !record.matches(pass) {
+		state, err := evm.PaymentReceipt(ctx, record.Transaction)
+		if err != nil {
+			return err
+		}
+		switch state {
+		case chain.TransactionReverted:
+			result.State = "Reverted"
+		case chain.TransactionPending:
+			result.State = "Pending"
+		}
+		return nil
+	}
+	result.State = "Confirmed"
+	if pass.SessionRef == record.Session {
+		result.ConsumedSession = &pass.SessionRef
+	}
+	switch {
+	case record.Connected && result.ConsumedSession != nil:
+		result.Service = "Verified"
+	case record.Unfulfilled:
+		result.Service = "Unfulfilled"
+	}
+	return nil
+}
+
+func printPaymentDisplay(out io.Writer, result paymentDisplay) {
+	fmt.Fprintf(out, "Diana · Pass %s\nTransaction %s\n", result.Pass.Hex(), result.Transaction.Hex())
+	switch result.State {
+	case "Reverted":
+		fmt.Fprintln(out, "Payment reverted.")
+	case "Pending":
+		fmt.Fprintln(out, "Payment pending. Check this reference before paying again.")
+	case "Confirmed":
+		fmt.Fprintln(out, "Payment confirmed.")
+		if result.ConsumedSession != nil {
+			fmt.Fprintf(out, "Pass consumed · Session %s\n", result.ConsumedSession.Hex())
+		}
+		switch result.Service {
+		case "Verified":
+			fmt.Fprintln(out, "Private service request verified.")
+		case "Unfulfilled":
+			fmt.Fprintln(out, "Pass unfulfilled. Contact the Door operator with this reference before paying again.")
+		default:
+			fmt.Fprintln(out, "Service access unverified. Contact the Door operator with this reference before paying again.")
+		}
+	default:
+		fmt.Fprintln(out, "Payment outcome unverified. Check this reference before paying again.")
+	}
 }

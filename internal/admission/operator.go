@@ -17,9 +17,10 @@ import (
 var operatorBucket = []byte("operator-decisions-v1")
 
 type operatorDecision struct {
-	Outcome  Outcome
-	Manifest common.Hash
-	Message  mailbox.Message
+	Outcome   Outcome
+	Manifest  common.Hash
+	Message   mailbox.Message
+	Delivered bool `json:",omitempty"`
 }
 
 // SendDecision saves the sealed decision before sending it. A retry uses the
@@ -41,7 +42,7 @@ func SendDecision(ctx context.Context, db *bolt.DB, authority Authority, relay *
 		if err != nil {
 			return err
 		}
-		stored = operatorDecision{outcome, manifest, message}
+		stored = operatorDecision{Outcome: outcome, Manifest: manifest, Message: message}
 		if err := db.Update(func(tx *bolt.Tx) error {
 			b, err := tx.CreateBucketIfNotExists(operatorBucket)
 			if err != nil {
@@ -84,7 +85,27 @@ func SendDecision(ctx context.Context, db *bolt.DB, authority Authority, relay *
 	if stored.Message.Expires <= time.Now().Unix() {
 		return ErrExpired
 	}
-	return relay.Send(ctx, stored.Message)
+	if stored.Delivered {
+		return nil
+	}
+	if err := relay.Send(ctx, stored.Message); err != nil {
+		return err
+	}
+	stored.Delivered = true
+	return db.Update(func(tx *bolt.Tx) error {
+		raw, err := json.Marshal(stored)
+		if err != nil {
+			return err
+		}
+		return tx.Bucket(operatorBucket).Put(id[:], raw)
+	})
+}
+
+// DecisionProgress reports this operator's local decision and whether the Mailbox
+// acknowledged delivery. It does not attest to verification or enforcement by the Door.
+func DecisionProgress(db *bolt.DB, id common.Hash) (Outcome, bool, error) {
+	stored, err := operatorPrior(db, id)
+	return stored.Outcome, stored.Delivered, err
 }
 
 func operatorPrior(db *bolt.DB, id common.Hash) (operatorDecision, error) {

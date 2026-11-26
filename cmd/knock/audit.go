@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"knock/internal/chain"
 	"knock/internal/command"
 	"knock/internal/door"
+	"knock/internal/identity"
 	"knock/internal/lease"
 	"knock/internal/mailbox"
 	"knock/internal/protocol"
@@ -34,26 +36,16 @@ func (s *settings) auditCommand() *cobra.Command {
 				(!clearMembers && len(members) == 0) || (clearMembers && len(members) != 0) {
 				return command.Exit(2, errors.New("set --door, --epoch and the complete list of --member accounts or --clear"))
 			}
-			return s.withDoor(cmd, target, func(ctx context.Context, _ *chain.EVM, card door.Card) error {
-				keys, err := command.Unlock(command.Profile(s.home, s.profile), "Owner passphrase")
-				if err != nil {
-					return command.Exit(8, err)
-				}
-				defer keys.Clear()
-				relay, err := mailbox.NewClient(card.Details.Mailbox, keys)
-				if err != nil {
-					return command.Exit(2, err)
-				}
-				recipient, err := chain.Diana().Recipient(ctx, card.Details.Recipient, card.Details.Account)
-				if err != nil {
-					return command.Exit(3, err)
-				}
-				if err := admission.SendAuditRotation(ctx, relay, card, keys, recipient, epoch, members); err != nil {
-					return command.Exit(8, err)
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Audit rotation requested for epoch %d\n", epoch+1)
-				return nil
-			})
+			keys, err := command.Unlock(command.Profile(s.home, s.profile), "Owner passphrase")
+			if err != nil {
+				return command.Exit(8, err)
+			}
+			defer keys.Clear()
+			if err := s.rotateAudit(cmd.Context(), target, keys, epoch, members); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Audit rotation requested for epoch %d\n", epoch+1)
+			return nil
 		},
 	}
 	rotate.Flags().StringVar(&target, "door", "", "Door account or trusted alias")
@@ -64,11 +56,34 @@ func (s *settings) auditCommand() *cobra.Command {
 	return audit
 }
 
+func (s *settings) rotateAudit(ctx context.Context, target string, keys *identity.Keys, epoch uint64, members []string) error {
+	return s.withVerifiedDoor(ctx, target, func(ctx context.Context, _ *chain.EVM, card door.Card) error {
+		d := card.Details
+		if d.Owner != keys.Account.Bech32 {
+			return command.Exit(3, errOperatorUnauthorized)
+		}
+		if !d.Policy.Enabled {
+			return command.Exit(3, errors.New("the Door policy is disabled"))
+		}
+		relay, err := mailbox.NewClient(d.Mailbox, keys)
+		if err != nil {
+			return command.Exit(2, err)
+		}
+		recipient, err := chain.Diana().Recipient(ctx, d.Recipient, d.Account)
+		if err != nil {
+			return command.Exit(3, err)
+		}
+		return command.Exit(8, admission.SendAuditRotation(ctx, relay, card, keys, recipient, epoch, members))
+	})
+}
+
 func (s *settings) historyCommand() *cobra.Command {
 	group := &cobra.Command{Use: "history", Short: "Read verified audit receipts"}
 	var target, from string
+	var asJSON bool
 	group.PersistentFlags().StringVar(&target, "door", "", "Door account or trusted alias")
 	group.PersistentFlags().StringVar(&from, "from", "", "import an encrypted receipt export")
+	group.PersistentFlags().BoolVar(&asJSON, "json", false, "write verified receipts as JSON")
 	run := func(cmd *cobra.Command, args []string) error {
 		var id common.Hash
 		if len(args) != 0 && (id.UnmarshalText([]byte(args[0])) != nil || id == (common.Hash{})) {
@@ -78,67 +93,43 @@ func (s *settings) historyCommand() *cobra.Command {
 		if err != nil {
 			return command.Exit(2, err)
 		}
-		card, pin, trusted, err := s.localDoor(selected)
-		if err != nil {
-			return err
-		}
-		verify, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
-		err = verifyStatusCard(verify, card, pin, trusted)
-		cancel()
-		if err != nil {
-			return command.Exit(3, err)
-		}
 		keys, err := command.Unlock(command.Profile(s.home, s.profile), "Auditor passphrase")
 		if err != nil {
 			return command.Exit(8, err)
 		}
 		defer keys.Clear()
-		if s.home == "" {
-			return command.Exit(8, errors.New("set a local configuration directory"))
+		receipts, loadErr := s.loadHistory(cmd.Context(), selected, from, keys)
+		if loadErr != nil && receipts == nil {
+			return loadErr
 		}
-		db, err := protocol.OpenState(filepath.Join(s.home, "history", keys.Account.Bech32+".db"))
-		if err != nil {
-			return command.Exit(8, err)
+		matches := make([]admission.AuditReceipt, 0, len(receipts))
+		for _, receipt := range receipts {
+			if id == (common.Hash{}) || id == receipt.ID {
+				matches = append(matches, receipt)
+			}
 		}
-		defer db.Close()
-		var relay *mailbox.Client
-		if from != "" {
-			f, err := os.Open(from)
-			if err != nil {
-				return command.Exit(8, err)
-			}
-			defer f.Close()
-			raw, err := io.ReadAll(io.LimitReader(f, protocol.MaxEnvelope+1))
-			if err != nil {
-				return command.Exit(8, err)
-			}
-			if err := admission.ImportAuditReceipt(db, card, keys, raw); err != nil {
+		if asJSON {
+			if err := json.NewEncoder(cmd.OutOrStdout()).Encode(struct {
+				Version  int                      `json:"version"`
+				Receipts []admission.AuditReceipt `json:"receipts"`
+			}{1, matches}); err != nil {
 				return command.Exit(8, err)
 			}
 		} else {
-			relay, err = mailbox.NewClient(card.Details.Mailbox, keys)
-			if err != nil {
-				return command.Exit(3, err)
-			}
-		}
-		ctx, stop := context.WithTimeout(cmd.Context(), 15*time.Second)
-		defer stop()
-		receipts, loadErr := admission.LoadHistory(ctx, db, relay, card, keys)
-		count := 0
-		for _, receipt := range receipts {
-			if id == (common.Hash{}) || id == receipt.ID {
+			for _, receipt := range matches {
 				printReceipt(cmd.OutOrStdout(), receipt, id != (common.Hash{}))
-				count++
 			}
 		}
 		if loadErr != nil {
-			return command.Exit(8, fmt.Errorf("couldn't load all receipt updates: %w", loadErr))
+			return loadErr
 		}
-		if count == 0 {
+		if len(matches) == 0 {
 			if id != (common.Hash{}) {
 				return command.Exit(8, errors.New("no verified receipt with that reference"))
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "No verified receipts")
+			if !asJSON {
+				fmt.Fprintln(cmd.OutOrStdout(), "No verified receipts")
+			}
 		}
 		return nil
 	}
@@ -147,6 +138,54 @@ func (s *settings) historyCommand() *cobra.Command {
 		&cobra.Command{Use: "show <receipt-id>", Short: "Inspect a verified receipt", Args: cobra.ExactArgs(1), RunE: run},
 	)
 	return group
+}
+
+func (s *settings) loadHistory(ctx context.Context, selected, from string, keys *identity.Keys) ([]admission.AuditReceipt, error) {
+	card, pin, trusted, err := s.localDoor(selected)
+	if err != nil {
+		return nil, err
+	}
+	verify, cancel := context.WithTimeout(ctx, 15*time.Second)
+	err = verifyStatusCard(verify, card, pin, trusted)
+	cancel()
+	if err != nil {
+		return nil, command.Exit(3, err)
+	}
+	if s.home == "" {
+		return nil, command.Exit(8, errors.New("set a local configuration directory"))
+	}
+	db, err := protocol.OpenState(filepath.Join(s.home, "history", keys.Account.Bech32+".db"))
+	if err != nil {
+		return nil, command.Exit(8, err)
+	}
+	defer db.Close()
+	var relay *mailbox.Client
+	if from != "" {
+		f, err := os.Open(from)
+		if err != nil {
+			return nil, command.Exit(8, err)
+		}
+		defer f.Close()
+		raw, err := io.ReadAll(io.LimitReader(f, protocol.MaxEnvelope+1))
+		if err != nil {
+			return nil, command.Exit(8, err)
+		}
+		if err := admission.ImportAuditReceipt(db, card, keys, raw); err != nil {
+			return nil, command.Exit(8, err)
+		}
+	} else {
+		relay, err = mailbox.NewClient(card.Details.Mailbox, keys)
+		if err != nil {
+			return nil, command.Exit(3, err)
+		}
+	}
+	call, stop := context.WithTimeout(ctx, 15*time.Second)
+	defer stop()
+	receipts, err := admission.LoadHistory(call, db, relay, card, keys)
+	if err != nil {
+		return receipts, command.Exit(8, fmt.Errorf("couldn't load all receipt updates: %w", err))
+	}
+	return receipts, nil
 }
 
 func printReceipt(out io.Writer, r admission.AuditReceipt, details bool) {

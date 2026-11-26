@@ -10,6 +10,7 @@ import (
 	"knock/internal/identity"
 
 	"github.com/ethereum/go-ethereum/common"
+	"golang.org/x/sync/errgroup"
 )
 
 type paymentAuthority interface {
@@ -133,17 +134,29 @@ func (h Host) fulfillPurchase(ctx context.Context, wrapper delivery, body doorPa
 		return errors.Join(consumeErr, err, noticeErr)
 	}
 	recheck := func(call context.Context) error {
-		current, err := h.Authority.Door(call, a.Door.Account)
-		if err != nil {
+		group, checks := errgroup.WithContext(call)
+		// These checks bind to the same authorization and can overlap within
+		// the host's freshness deadline. Each must pass before access opens.
+		group.Go(func() error {
+			current, err := h.Authority.Door(checks, a.Door.Account)
+			if err != nil {
+				return err
+			}
+			if err := a.valid(current.Details, time.Now().Unix()); err != nil {
+				return err
+			}
+			binding, err := CardBinding(current)
+			if err != nil || binding != a.Door {
+				return ErrInvalid
+			}
+			return nil
+		})
+		group.Go(func() error {
+			_, err := verifyManifest(checks, h.Authority, card, localBinding(h.Keys), a, wrapper.Manifest)
 			return err
-		}
-		if err := a.valid(current.Details, time.Now().Unix()); err != nil {
-			return err
-		}
-		if _, err := verifyManifest(call, h.Authority, current, localBinding(h.Keys), a, wrapper.Manifest); err != nil {
-			return err
-		}
-		return verifyConsumption(call)
+		})
+		group.Go(func() error { return verifyConsumption(checks) })
+		return group.Wait()
 	}
 	return h.provision(ctx, body, commitment, commitment, session, consumptionTx, targets, recheck, verifyConsumption)
 }

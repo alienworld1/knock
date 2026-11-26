@@ -10,10 +10,30 @@ import (
 	"knock/internal/identity"
 	"knock/internal/lease"
 	"knock/internal/mailbox"
+	"knock/internal/protocol"
 
 	"github.com/ethereum/go-ethereum/common"
 	qoreseal "github.com/qorechain/qoreseal/go"
 )
+
+func TestSessionIssueTimePreservesLegacySigningBytes(t *testing.T) {
+	record := SessionStatus{Version: 1, Deadline: 1750}
+	for _, issued := range []int64{0, 1660} {
+		record.Issued = issued
+		signed, err := protocol.Encode(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]any
+		if err := protocol.Decode(signed, &fields); err != nil {
+			t.Fatal(err)
+		}
+		value, exists := fields["Issued"]
+		if exists != (issued != 0) || (exists && value != uint64(issued)) {
+			t.Fatalf("issue time %d signed as %v", issued, value)
+		}
+	}
+}
 
 func TestRevocationEvidenceSurvivesCleanupFailure(t *testing.T) {
 	h := newHarness(t, 1)
@@ -66,7 +86,7 @@ func TestRevocationEvidenceSurvivesCleanupFailure(t *testing.T) {
 		var latest SessionStatus
 		for i, message := range item.Evidence.Outbox {
 			latest, err = readSessionStatus(card, audiences[i], message)
-			if err != nil || latest.State != state || latest.RevokedBlock != block || latest.Cause != "Revoked" {
+			if err != nil || latest.State != state || latest.RevokedBlock != block || latest.Cause != "Revoked" || latest.Issued != record.Issued {
 				t.Fatalf("incorrect status: %+v %v", latest, err)
 			}
 			wrong := audiences[1-i]

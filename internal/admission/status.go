@@ -85,6 +85,7 @@ type SessionStatus struct {
 	Revision     uint64         `json:"revision"`
 	Observed     int64          `json:"observed"`
 	Deadline     int64          `json:"deadline"`
+	Issued       int64          `json:"issued,omitempty" cbor:",omitempty"`
 	ChainAt      int64          `json:"chainChecked,omitempty"`
 	Degraded     bool           `json:"chainDegraded"`
 	RevokedAt    int64          `json:"revokedAt,omitempty"`
@@ -175,7 +176,7 @@ func (h Host) buildStatusNotice(session journalSession) error {
 	s := SessionStatus{
 		Version: 1, Registry: target.Registry, DoorID: target.DoorID, RequestID: target.RequestID, Session: record.ID,
 		Door: h.Keys.Account.Bech32, Role: target.Role, Service: target.Service, State: record.State, Revision: e.Revision, Observed: e.Changed,
-		Deadline: record.Deadline, ChainAt: e.ChainAt, Degraded: e.Degraded, RevokedAt: e.RevokedAt,
+		Deadline: record.Deadline, Issued: record.Issued, ChainAt: e.ChainAt, Degraded: e.Degraded, RevokedAt: e.RevokedAt,
 		RevokedBlock: e.RevokedBlock, ClosedAt: e.ClosedAt, Cause: e.Cause,
 	}
 	if h.Audit != nil && len(e.Closures) != 0 {
@@ -290,6 +291,7 @@ func readSessionStatus(card door.Card, keys *identity.Keys, message mailbox.Mess
 	if s.Version != 1 || s.Door != d.Account || s.DoorID != d.DoorID || s.Registry != d.Registry.Address ||
 		s.Revision == 0 || !validReceiptState(s.ReceiptState) || s.Observed <= 0 || s.Deadline <= 0 || s.RequestID == (common.Hash{}) ||
 		s.Session != SessionReference(s.DoorID, s.RequestID) || message.ID != sessionStatusID(s, message.Route) ||
+		(s.Issued != 0 && (s.Issued < 0 || s.Issued >= s.Deadline || s.Issued > s.Observed)) ||
 		!validSessionScope(s.Role, s.Service) || sha256.Sum256(signed.Signing) != d.SigningKey || card.VerifySigner(signed.Signing) != nil ||
 		(s.RevokedAt > 0) != (s.RevokedBlock != (common.Hash{})) || (s.State == lease.Closed) != (s.ClosedAt > 0) ||
 		protocol.Verify(s.Door, signed.Signing, sessionStatusPurpose, s, signed.Signature) != nil {

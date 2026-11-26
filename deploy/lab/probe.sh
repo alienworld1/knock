@@ -30,6 +30,47 @@ for port in 29221 29222 29223; do
   connect "$port" cloud-init status --wait
 done
 
+private=''
+client_dir=''
+cleanup() {
+  local result=$? failed=0
+  trap - EXIT
+  if [[ -n $client_dir ]]; then
+    requester "rm -f -- $client_dir/client $client_dir/client-cert.pub $client_dir/wrong-cert.pub $client_dir/protected_hosts $client_dir/raw; rmdir -- $client_dir" || failed=1
+  fi
+  if [[ -n $private ]]; then
+    rm -f -- "$private/client" "$private/client.pub" || failed=1
+    rmdir -- "$private" || failed=1
+  fi
+  door sudo bash -s <<'GUEST' || failed=1
+set -e
+if systemctl is-active --quiet knock-lab-probe.service; then
+  systemctl stop knock-lab-probe.service
+fi
+if nft list table inet knock_m1 >/dev/null 2>&1; then
+  nft delete table inet knock_m1
+fi
+if ip link show knockwg >/dev/null 2>&1; then
+  ip link delete knockwg
+fi
+rm -rf -- /run/knock-m1 /run/knock-authority
+rm -f -- /run/knock-role
+GUEST
+  requester sudo bash -s <<'GUEST' || failed=1
+set -e
+if ip link show knockwg >/dev/null 2>&1; then
+  ip link delete knockwg
+fi
+rm -rf -- /run/knock-m1
+GUEST
+  if (( failed )); then
+    echo 'Knock probe cleanup incomplete. Stop the disposable guests before starting a new run.' >&2
+    exit 1
+  fi
+  exit "$result"
+}
+trap cleanup EXIT
+
 door sudo bash -s <<'GUEST'
 set -euo pipefail
 umask 077
@@ -124,16 +165,6 @@ door sudo wg set knockwg peer "$client_pub" allowed-ips 198.19.0.2/32
 requester sudo wg set knockwg peer "$door_pub" allowed-ips 198.19.0.1/32 endpoint 198.18.0.1:48001
 
 private=$(mktemp -d "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/knock-probe.XXXXXXXX")
-client_dir=''
-cleanup() {
-  if [[ -n $client_dir ]]; then
-    requester "rm -f -- $client_dir/client $client_dir/client-cert.pub $client_dir/wrong-cert.pub $client_dir/protected_hosts $client_dir/raw; rmdir -- $client_dir" || true
-  fi
-  rm -f -- "$private/client" "$private/client.pub"
-  rmdir -- "$private"
-  door "sudo systemctl stop knock-lab-probe.service" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
 ssh-keygen -q -t ed25519 -N '' -f "$private/client"
 door "sudo tee /run/knock-m1/client.pub >/dev/null" < "$private/client.pub"
 door "sudo cp /run/knock-m1/client.pub /run/knock-m1/wrong.pub"

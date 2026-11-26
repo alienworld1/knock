@@ -29,7 +29,10 @@ admin_key=$(cat "$lab/admin.pub")
 create_guest() {
   local role=$1 host_id=$2 port=$3
   shift 3
-  local guest="$lab/$role"
+  local guest="$lab/$role" memory=1024
+  if [[ $role == door ]]; then
+    memory=2048
+  fi
   local admin_mac="52:54:00:4b:00:$host_id"
   mkdir -- "$guest"
   printf 'instance-id: knock-%s\nlocal-hostname: knock-%s\n' "$role" "$role" > "$guest/meta-data"
@@ -74,7 +77,7 @@ CONFIG
   xorriso -as mkisofs -quiet -volid cidata -joliet -rock -output "$guest/seed.iso" \
     "$guest/meta-data" "$guest/user-data" "$guest/network-config"
   qemu-img create -q -f qcow2 -F qcow2 -b "$image" "$guest/disk.qcow2" 8G
-  qemu-system-x86_64 -accel kvm -cpu host -smp 2 -m 1024 -display none \
+  qemu-system-x86_64 -accel kvm -cpu host -smp 2 -m "$memory" -display none \
     -name "knock-$role" -daemonize -pidfile "$guest/qemu.pid" \
     -serial "file:$guest/console.log" -monitor "unix:$guest/monitor.sock,server=on,wait=off" \
     -drive "file=$guest/disk.qcow2,if=virtio,format=qcow2" -drive "file=$guest/seed.iso,if=virtio,format=raw,readonly=on" \

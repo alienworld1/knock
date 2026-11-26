@@ -292,23 +292,8 @@ func (s *settings) decisionCommand(verb string, outcome admission.Outcome) *cobr
 						return command.Exit(2, errors.New("Decision canceled"))
 					}
 				}
-				path := command.Profile(s.home, s.profile)
-				state := filepath.Join(filepath.Dir(path), "admission", keys.Account.Bech32, "operator.db")
-				db, err := protocol.OpenState(state)
-				if err != nil {
-					return command.Exit(8, err)
-				}
-				defer db.Close()
-				call, cancel := context.WithTimeout(ctx, 45*time.Second)
-				defer cancel()
-				if err := admission.SendDecision(call, db, authority, relay, keys, review, outcome); err != nil {
-					if errors.Is(err, admission.ErrExpired) {
-						return command.Exit(4, err)
-					}
-					if errors.Is(err, admission.ErrInvalid) || errors.Is(err, admission.ErrPolicy) {
-						return command.Exit(3, err)
-					}
-					return command.Exit(8, err)
+				if err := s.sendDecision(ctx, authority, relay, keys, review, outcome); err != nil {
+					return err
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), "Decision sent. Waiting for the Door to verify it.")
 				return nil
@@ -334,6 +319,40 @@ func printReview(out io.Writer, review admission.Review) {
 }
 
 func (s *settings) withReviews(cmd *cobra.Command, target common.Hash, use func(context.Context, admission.Diana, *mailbox.Client, *identity.Keys, []admission.Review) error) error {
+	keys, err := command.Unlock(command.Profile(s.home, s.profile), "Identity passphrase")
+	if err != nil {
+		return command.Exit(8, err)
+	}
+	defer keys.Clear()
+	return s.loadReviews(cmd.Context(), target, keys, use)
+}
+
+func (s *settings) operatorState(keys *identity.Keys) string {
+	profile := command.Profile(s.home, s.profile)
+	return filepath.Join(filepath.Dir(profile), "admission", keys.Account.Bech32, "operator.db")
+}
+
+func (s *settings) sendDecision(ctx context.Context, authority admission.Diana, relay *mailbox.Client, keys *identity.Keys, review admission.Review, outcome admission.Outcome) error {
+	db, err := protocol.OpenState(s.operatorState(keys))
+	if err != nil {
+		return command.Exit(8, err)
+	}
+	defer db.Close()
+	call, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	if err := admission.SendDecision(call, db, authority, relay, keys, review, outcome); err != nil {
+		if errors.Is(err, admission.ErrExpired) {
+			return command.Exit(4, err)
+		}
+		if errors.Is(err, admission.ErrInvalid) || errors.Is(err, admission.ErrPolicy) {
+			return command.Exit(3, err)
+		}
+		return command.Exit(8, err)
+	}
+	return nil
+}
+
+func (s *settings) loadReviews(ctx context.Context, target common.Hash, keys *identity.Keys, use func(context.Context, admission.Diana, *mailbox.Client, *identity.Keys, []admission.Review) error) error {
 	if _, err := protocol.Origin(s.mailbox); err != nil {
 		return command.Exit(2, err)
 	}
@@ -341,16 +360,11 @@ func (s *settings) withReviews(cmd *cobra.Command, target common.Hash, use func(
 	if err != nil {
 		return command.Exit(2, err)
 	}
-	keys, err := command.Unlock(command.Profile(s.home, s.profile), "Identity passphrase")
-	if err != nil {
-		return command.Exit(8, err)
-	}
-	defer keys.Clear()
 	relay, err := mailbox.NewClient(s.mailbox, keys)
 	if err != nil {
 		return command.Exit(2, err)
 	}
-	ctx, cancel := context.WithTimeout(cmd.Context(), 100*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 100*time.Second)
 	defer cancel()
 	messages, err := relay.Inbox(ctx)
 	if err != nil {
@@ -384,5 +398,5 @@ func (s *settings) withReviews(cmd *cobra.Command, target common.Hash, use func(
 	if unverified && target == (common.Hash{}) {
 		return command.Exit(3, errors.New("Couldn't verify every request. Check the current Door Cards and try again."))
 	}
-	return use(cmd.Context(), authority, relay, keys, reviews)
+	return use(ctx, authority, relay, keys, reviews)
 }

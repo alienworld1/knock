@@ -1,9 +1,17 @@
-.PHONY: build check abi
+.PHONY: build console console-check check abi
 
-build:
+build: console
 	go build -trimpath -o bin/ ./cmd/knock ./cmd/knockd
 
-check: build
+console:
+	pnpm --dir web/console build
+
+console-check: console
+	pnpm --dir web/console format:check
+	pnpm --dir web/console test
+	pnpm --dir web/console test:browser
+
+check: build console-check
 	go vet ./...
 	go test ./...
 	forge fmt --check --root contracts

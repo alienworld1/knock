@@ -4,10 +4,12 @@ Knock grants short-lived access to verified QoreChain Diana identities. Request 
 
 ## Build
 
-Use Go 1.26.6, Foundry, Make, and Python 3. The registry uses Solidity 0.8.28. The checks ran with Foundry commit `be350a64be9178a71a6ff029a72dc4455dcffcb1`.
+Use Go 1.26.6, Node.js 24, pnpm 11.25.0, Foundry, Make, and Python 3. The registry uses Solidity 0.8.28. The checks ran with Foundry commit `be350a64be9178a71a6ff029a72dc4455dcffcb1`.
 
 ```sh
+pnpm --dir web/console install --frozen-lockfile
 make build
+pnpm --dir web/console exec playwright install chromium
 make check
 ```
 
@@ -56,6 +58,18 @@ Use `deny` to decline. Keep the requester running while you review. After a gran
 
 Enter the reason with `--reason -` to keep it out of shell history. The Mailbox can see delivery accounts, timing, sizes, opaque message IDs, and expiry. Reasons are encrypted for approvers. Expired messages are pruned from the live queue. Old disk pages and backups may retain ciphertext.
 
+## Use the operator console
+
+Launch the console with your operator profile, registry pin, and Door Cards.
+
+```sh
+bin/knock --profile approver.age --network network.json --cards cards console
+```
+
+Unlock the profile in the terminal and open the one-time link it prints. Review requests under Doors, follow signed host status under Sessions, and read the receipts your identity can decrypt under History. Door owners can request audit rotation there and verify the committed epoch in the Door log.
+
+Keep the link private. The console listens only on loopback and keeps keys in Knock. Press Ctrl+C in the terminal to close the console session.
+
 ## Buy a service pass
 
 Register a second Door with its own profile, state, and Ubuntu VM. Use the same registry pin and Mailbox setup. In its policy, leave `roles` and `approvers` empty and set `approversCanRevoke` to `false`. Set `maxDurationSeconds` to the fixed pass duration and add an `offer` with a unique 32-byte hex `id`, a short lowercase `service` name, an exact positive integer `priceUqor`, and the `beneficiary` Diana account. One test QOR is 1,000,000 uqor. Use the service setup below. The Metered Door serves a read-only HTTP status resource and needs no local SSH slot accounts.
@@ -103,7 +117,7 @@ knock history show --door validator-ops --from receipt.sealed "$receipt_id"
 
 ## Run a Door
 
-Use a dedicated, always-on Ubuntu 24.04 VM with cgroup v2, WireGuard, and nftables. Keep time synchronized and disable suspend. Keep management SSH on a separate network. Knock reserves the `knockdoor` interface, the `knock_ssh` nftables table, `198.19.0.0/28`, and TCP ports 2222–2229 on `198.19.0.1`. For an Approval Door, install OpenSSH and create a local account per concurrent session. The setup below creates two SSH slots. For up to eight, add `knockssh2` through `knockssh7` with the same restrictions.
+Use a dedicated, always-on Ubuntu 24.04 VM with 2 GiB of RAM, cgroup v2, WireGuard, and nftables. Keep time synchronized and disable suspend. Keep management SSH on a separate network. Knock reserves the `knockdoor` interface, the `knock_ssh` nftables table, `198.19.0.0/28`, and TCP ports 2222–2229 on `198.19.0.1`. For an Approval Door, install OpenSSH and create a local account per concurrent session. The setup below creates two SSH slots. For up to eight, add `knockssh2` through `knockssh7` with the same restrictions.
 
 Set `wireGuardEndpoint` in the private Door configuration to a numeric address and UDP port reachable by the requester, for example `198.18.0.1:48001` in the lab. Permit that UDP port on the Door's external interface. Leave the private listener behind Knock's firewall. Install the files under `/etc/knock` with root ownership and the Door profile at mode `0600`. Keep the owner profile on the operator machine.
 
@@ -136,8 +150,8 @@ deploy/lab/probe.sh /tmp/knock-lab
 deploy/lab/stop.sh /tmp/knock-lab
 ```
 
-The lab includes two requester guests and a separate outsider. The probe uses the Door, first requester, and outsider to check the closed service, WireGuard, SSH certificate restrictions, timed nftables membership, and systemd cgroup cleanup. Use a new lab directory for a clean run.
+The lab includes two requester guests and a separate outsider. The probe uses the Door, first requester, and outsider to check the closed service, WireGuard, SSH certificate restrictions, timed nftables membership, and systemd cgroup cleanup. After the probe, install the Door and requester from the steps above. To reset, stop all guests and start again in a new lab directory. Keep the old directory private until you remove it.
 
 Both Door modes were verified on Diana with registry `0xd80502c7dfe2a29a087118b81549b9cb267f3b0d`. [Deployment](https://explore.qore.network/tx/0xa015ceec6fbcc969d9117df573fb852fe5686a49772009003619b95ecd31757b), [SSH revocation](https://explore.qore.network/tx/0xf8cdcd6e6a1f3eba3a2ec93fb55b2f1c7190ef003f2f0838f9a2b0458e781336), [Service pass purchase](https://explore.qore.network/tx/0xa49e42248906a06288346cd6f9cea97ef60356941f2f8dff4682c0e7b398942f), [Pass consumption](https://explore.qore.network/tx/0xce70c936ddc0863fd51522b102b014a81f41a52a55f5d43c5d7c9108ef8d973f).
 
-Apache-2.0.
+Apache-2.0. The console uses Phosphor icons and includes bundled dependency licenses under `/assets/licenses.txt`.

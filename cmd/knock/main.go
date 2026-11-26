@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -40,7 +41,7 @@ func root() *cobra.Command {
 	s.requestFlags(root)
 	root.AddCommand(tunnelCommand("up"), tunnelCommand("down"))
 	root.AddCommand(s.identityCommands(), s.doorCommands(), s.revokeCommand(), s.sessionsCommand(), s.auditCommand(), s.historyCommand(), s.requestsCommand(), s.paymentCommand(),
-		s.decisionCommand("approve", admission.Authorized), s.decisionCommand("deny", admission.Denied))
+		s.decisionCommand("approve", admission.Authorized), s.decisionCommand("deny", admission.Denied), s.consoleCommand())
 	return root
 }
 
@@ -184,18 +185,16 @@ func (s *settings) revokeCommand() *cobra.Command {
 			if err != nil {
 				return command.Exit(2, err)
 			}
-			return s.withDoor(cmd, selected, func(ctx context.Context, evm *chain.EVM, card door.Card) error {
-				keys, err := command.Unlock(command.Profile(s.home, s.profile), "Identity passphrase")
-				if err != nil {
-					return command.Exit(8, err)
-				}
-				defer keys.Clear()
-				if err := evm.Revoke(ctx, card.Details.Registry, card.Details.DoorID, session, keys, command.Progress); err != nil {
-					return command.Exit(3, err)
-				}
-				fmt.Fprintln(cmd.OutOrStdout(), "Registry revocation confirmed. Check session status for host enforcement.")
-				return nil
-			})
+			keys, err := command.Unlock(command.Profile(s.home, s.profile), "Identity passphrase")
+			if err != nil {
+				return command.Exit(8, err)
+			}
+			defer keys.Clear()
+			if err := s.revoke(cmd.Context(), selected, session, keys, command.Progress); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "Registry revocation confirmed. Check session status for host enforcement.")
+			return nil
 		},
 	}
 	cmd.Flags().StringVar(&target, "door", "", "trusted Door account or alias")
@@ -203,11 +202,15 @@ func (s *settings) revokeCommand() *cobra.Command {
 }
 
 func (s *settings) withDoor(cmd *cobra.Command, target string, use func(context.Context, *chain.EVM, door.Card) error) error {
+	return s.withVerifiedDoor(cmd.Context(), target, use)
+}
+
+func (s *settings) withVerifiedDoor(ctx context.Context, target string, use func(context.Context, *chain.EVM, door.Card) error) error {
 	card, pin, _, err := s.localDoor(target)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(cmd.Context(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 	native := chain.Diana()
 	evm, err := chain.Connect(ctx, native)
@@ -220,6 +223,26 @@ func (s *settings) withDoor(cmd *cobra.Command, target string, use func(context.
 	}
 	return use(ctx, evm, card)
 }
+
+func canRevoke(card door.Card, account string) bool {
+	d := card.Details
+	return d.Owner == account || (d.Policy.ApproversCanRevoke && slices.Contains(d.Policy.Approvers, account))
+}
+
+func (s *settings) revoke(ctx context.Context, target string, session common.Hash, keys *identity.Keys, report func(string)) error {
+	return s.withVerifiedDoor(ctx, target, func(ctx context.Context, evm *chain.EVM, card door.Card) error {
+		return revokeVerified(ctx, evm, card, session, keys, report)
+	})
+}
+
+func revokeVerified(ctx context.Context, evm *chain.EVM, card door.Card, session common.Hash, keys *identity.Keys, report func(string)) error {
+	if !canRevoke(card, keys.Account.Bech32) {
+		return command.Exit(3, errOperatorUnauthorized)
+	}
+	return command.Exit(3, evm.Revoke(ctx, card.Details.Registry, card.Details.DoorID, session, keys, report))
+}
+
+var errOperatorUnauthorized = errors.New("this identity is not authorized for that action")
 
 // localDoor reads the configured Card and checks the pin recorded by door trust.
 func (s *settings) localDoor(target string) (door.Card, chain.Registry, bool, error) {

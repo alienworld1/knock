@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-canvas: light-dark(#f2efe5, #242824);
+  --color-surface: light-dark(#faf8f1, #30362e);
+  --color-elevated: light-dark(#e8e5da, #383e36);
+  --color-seam: light-dark(#c7c5b9, #51594d);
+  --color-control: light-dark(#777d70, #808b79);
+  --color-ink: light-dark(#242824, #f2efe5);
+  --color-muted: light-dark(#555f51, #b7bdb0);
+  --color-brass: light-dark(#79551c, #dbad64);
+  --color-success: light-dark(#326747, #8db89c);
+  --color-warning: light-dark(#805718, #e5c17a);
+  --color-danger: light-dark(#a3362b, #f09b8b);
+  --color-focus: light-dark(#79551c, #f2ce91);
+  --color-action: #dbad64;
+  --color-action-hover: #ecc080;
+  --color-action-ink: #242824;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    @apply bg-canvas font-sans text-sm/5.5 text-ink;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+  }
+  :root[data-theme="system"] {
+    color-scheme: light dark;
+  }
+
+  h1 {
+    @apply text-[26px]/8.5 font-semibold;
+  }
+  h2 {
+    @apply text-lg/6.5 font-semibold;
+  }
+  h3 {
+    @apply text-base/6 font-semibold;
+  }
+  code,
+  time {
+    @apply font-mono text-[13px]/5 wrap-anywhere;
+  }
+  svg {
+    @apply shrink-0 align-middle;
+  }
+  button,
+  select,
+  input:not([type="checkbox"]),
+  textarea {
+    @apply min-h-10 rounded-sm border border-control bg-surface px-3 py-2 text-ink max-md:min-h-11;
+  }
+  button,
+  select,
+  summary {
+    @apply motion-safe:transition-colors motion-safe:duration-120;
+  }
+  button {
+    @apply cursor-pointer enabled:hover:bg-elevated;
+  }
+  button:disabled,
+  textarea:disabled {
+    @apply cursor-default text-muted;
+  }
+  summary {
+    @apply min-h-10 cursor-pointer py-2 text-brass max-md:min-h-11;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-3 outline-focus;
+  }
+  dialog {
+    @apply m-auto w-full max-w-[min(520px,calc(100%-32px))] max-h-[calc(100dvh-32px)] rounded-lg border border-control bg-surface p-5 text-ink shadow-xl;
+  }
+  dialog::backdrop {
+    @apply bg-black/65;
+  }
+  progress {
+    @apply my-2 block h-2.5 w-full appearance-none rounded-sm border border-control bg-canvas text-action;
+  }
+  progress::-webkit-progress-bar {
+    @apply rounded-sm bg-canvas;
+  }
+  progress::-webkit-progress-value {
+    @apply rounded-sm bg-action;
+  }
+  progress::-moz-progress-bar {
+    @apply rounded-sm bg-action;
+  }
+}
