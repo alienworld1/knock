@@ -22,7 +22,7 @@ func root() *cobra.Command {
 	var path string
 	root := &cobra.Command{Use: "knockd", Short: "Operate a Knock Door"}
 	root.PersistentFlags().StringVar(&path, "config", "", "Door configuration path")
-	root.AddCommand(mailboxCommand(),
+	root.AddCommand(mailboxCommand(), auditExportCommand(&path),
 		&cobra.Command{
 			Use: "register", Short: "Commit the Door policy and publish its signed Card", Args: cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {

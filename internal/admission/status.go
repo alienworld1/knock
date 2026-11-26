@@ -59,6 +59,11 @@ type leaseEvidence struct {
 	ClosedAt     int64
 	Cause        string
 	Outbox       []mailbox.Message
+	ActiveAt     int64
+	EndedAt      int64
+	Closures     []closureEvidence
+	Receipts     []common.Hash
+	ReceiptState string
 }
 
 func (e *leaseEvidence) touch(now int64) {
@@ -86,6 +91,7 @@ type SessionStatus struct {
 	RevokedBlock common.Hash    `json:"revokedBlock"`
 	ClosedAt     int64          `json:"closedAt,omitempty"`
 	Cause        string         `json:"cause,omitempty"`
+	ReceiptState string         `json:"receiptState,omitempty" cbor:",omitempty"`
 }
 
 func (s SessionStatus) Fresh(now time.Time) bool {
@@ -139,7 +145,9 @@ func (h Host) queueSessionStatus(ctx context.Context) error {
 		if session.Record.State == lease.Closed && time.Since(time.Unix(e.Changed, 0)) >= mailbox.Retention {
 			_, err := h.Journal.editLease(session.Request, func(item *entry) (bool, error) {
 				item.Evidence.Published = item.Evidence.Revision
-				item.Evidence.Targets = nil
+				if h.canDiscardStatusTargets(item.Evidence) {
+					item.Evidence.Targets = nil
+				}
 				return true, nil
 			})
 			if err != nil {
@@ -170,6 +178,12 @@ func (h Host) buildStatusNotice(session journalSession) error {
 		Deadline: record.Deadline, ChainAt: e.ChainAt, Degraded: e.Degraded, RevokedAt: e.RevokedAt,
 		RevokedBlock: e.RevokedBlock, ClosedAt: e.ClosedAt, Cause: e.Cause,
 	}
+	if h.Audit != nil && len(e.Closures) != 0 {
+		s.ReceiptState = e.ReceiptState
+		if s.ReceiptState == "" || (s.ReceiptState == "Available" && len(e.Receipts) < len(e.Closures)) {
+			s.ReceiptState = "Pending"
+		}
+	}
 	signature, err := protocol.Sign(h.Keys, sessionStatusPurpose, s)
 	if err != nil {
 		return err
@@ -199,7 +213,13 @@ func (h Host) buildStatusNotice(session journalSession) error {
 	return err
 }
 
-func (h Host) deliverSessionStatus(ctx context.Context, relay *mailbox.Client) error {
+// Receipt issuance uses the same sealed targets as session status. Keep
+// them until every recorded terminal observation has an archived receipt.
+func (h Host) canDiscardStatusTargets(e *leaseEvidence) bool {
+	return h.Audit == nil || len(e.Receipts) == len(e.Closures)
+}
+
+func (h Host) deliverSessionStatus(ctx context.Context, send func(context.Context, mailbox.Message) error) error {
 	sessions, err := h.Journal.sessions()
 	if err != nil {
 		return err
@@ -225,7 +245,7 @@ func (h Host) deliverSessionStatus(ctx context.Context, relay *mailbox.Client) e
 				continue
 			}
 			call, cancel := context.WithTimeout(ctx, 4*time.Second)
-			err := relay.Send(call, notice)
+			err := send(call, notice)
 			cancel()
 			if err != nil {
 				failure = err
@@ -246,7 +266,7 @@ func (h Host) deliverSessionStatus(ctx context.Context, relay *mailbox.Client) e
 					active.Revision++
 				} else {
 					active.Published = e.Revision
-					if current.Lease.State == lease.Closed {
+					if current.Lease.State == lease.Closed && h.canDiscardStatusTargets(active) {
 						active.Targets = nil
 					}
 				}
@@ -268,7 +288,7 @@ func readSessionStatus(card door.Card, keys *identity.Keys, message mailbox.Mess
 	}
 	s, d := signed.Record, card.Details
 	if s.Version != 1 || s.Door != d.Account || s.DoorID != d.DoorID || s.Registry != d.Registry.Address ||
-		s.Revision == 0 || s.Observed <= 0 || s.Deadline <= 0 || s.RequestID == (common.Hash{}) ||
+		s.Revision == 0 || !validReceiptState(s.ReceiptState) || s.Observed <= 0 || s.Deadline <= 0 || s.RequestID == (common.Hash{}) ||
 		s.Session != SessionReference(s.DoorID, s.RequestID) || message.ID != sessionStatusID(s, message.Route) ||
 		!validSessionScope(s.Role, s.Service) || sha256.Sum256(signed.Signing) != d.SigningKey || card.VerifySigner(signed.Signing) != nil ||
 		(s.RevokedAt > 0) != (s.RevokedBlock != (common.Hash{})) || (s.State == lease.Closed) != (s.ClosedAt > 0) ||
@@ -280,6 +300,15 @@ func readSessionStatus(card door.Card, keys *identity.Keys, message mailbox.Mess
 		return s, nil
 	default:
 		return SessionStatus{}, ErrInvalid
+	}
+}
+
+func validReceiptState(state string) bool {
+	switch state {
+	case "", "Pending", "Unavailable", "Available":
+		return true
+	default:
+		return false
 	}
 }
 

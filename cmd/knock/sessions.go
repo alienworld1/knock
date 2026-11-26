@@ -207,6 +207,9 @@ func printSession(out io.Writer, item sessionDisplay) {
 				fmt.Fprintf(out, "Closure verified %s\n", utc(record.ClosedAt))
 			}
 		}
+		if record.ReceiptState != "" {
+			fmt.Fprintf(out, "Receipt %s\n", strings.ToLower(record.ReceiptState))
+		}
 	}
 	fmt.Fprintf(out, "Chain monitoring %s\n", strings.ToLower(item.Monitoring))
 }

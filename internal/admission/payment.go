@@ -14,7 +14,7 @@ import (
 
 type paymentAuthority interface {
 	Payment(context.Context, chain.Registry, common.Hash) (chain.Purchase, error)
-	Consume(context.Context, chain.Registry, common.Hash, common.Hash, common.Hash, uint64, uint64, *identity.Keys, func(string)) error
+	Consume(context.Context, chain.Registry, common.Hash, common.Hash, common.Hash, uint64, uint64, *identity.Keys, func(string)) (common.Hash, error)
 }
 
 func (d Diana) Payment(ctx context.Context, registry chain.Registry, commitment common.Hash) (chain.Purchase, error) {
@@ -23,7 +23,7 @@ func (d Diana) Payment(ctx context.Context, registry chain.Registry, commitment 
 
 func (d Diana) Consume(ctx context.Context, registry chain.Registry, doorID, commitment, session common.Hash, version, deadline uint64,
 	keys *identity.Keys, report func(string),
-) error {
+) (common.Hash, error) {
 	return d.EVM.Consume(ctx, registry, doorID, commitment, session, version, deadline, keys, report)
 }
 
@@ -112,7 +112,7 @@ func (h Host) fulfillPurchase(ctx context.Context, wrapper delivery, body doorPa
 	}
 	h.progress(session, "Consuming payment "+commitment.Hex())
 	report := func(message string) { h.progress(session, message) }
-	consumeErr := payments.Consume(ctx, card.Details.Registry, a.DoorID, commitment,
+	consumptionTx, consumeErr := payments.Consume(ctx, card.Details.Registry, a.DoorID, commitment,
 		session, a.Policy, uint64(a.Deadline), h.Keys, report)
 	verifyConsumption := func(call context.Context) error {
 		pass, err := currentPass(call)
@@ -145,5 +145,5 @@ func (h Host) fulfillPurchase(ctx context.Context, wrapper delivery, body doorPa
 		}
 		return verifyConsumption(call)
 	}
-	return h.provision(ctx, body, commitment, commitment, session, targets, recheck, verifyConsumption)
+	return h.provision(ctx, body, commitment, commitment, session, consumptionTx, targets, recheck, verifyConsumption)
 }

@@ -55,6 +55,13 @@ func (a *testAuthority) Actor(_ context.Context, _ door.Details, account string,
 	return Actor{binding(account, public, recipient), public, recipient}, nil
 }
 
+func (a *testAuthority) SigningKey(_ context.Context, account string) ([]byte, error) {
+	if keys := a.actors[account]; keys != nil {
+		return keys.Signing.PublicKey, nil
+	}
+	return nil, ErrInvalid
+}
+
 func (a *testAuthority) CanAdmit(context.Context, door.Details, common.Hash) (bool, error) {
 	return !a.revoked, nil
 }

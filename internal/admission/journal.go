@@ -114,10 +114,11 @@ func (j *Journal) reservePayment(id, manifest common.Hash) (bool, error) {
 }
 
 type leaseRecord struct {
-	ID       common.Hash
-	Issued   int64
-	Deadline int64
-	State    lease.State
+	ID            common.Hash
+	Issued        int64
+	Deadline      int64
+	State         lease.State
+	ConsumptionTx common.Hash
 }
 
 // decide durably consumes authorization before the host can touch resources.
@@ -199,8 +200,23 @@ func (item *entry) advance(next lease.State, now int64) bool {
 		}
 	}
 	if evidence := item.Evidence; evidence != nil {
-		if next == lease.Closed {
-			evidence.ClosedAt = now
+		switch next {
+		case lease.Active:
+			evidence.ActiveAt = now
+		case lease.Closing, lease.Closed, lease.CleanupIncomplete:
+			if evidence.EndedAt == 0 {
+				evidence.EndedAt = now
+			}
+			if next == lease.Closed {
+				evidence.ClosedAt = now
+			}
+			if next != lease.Closing {
+				cause := evidence.Cause
+				if cause == "" {
+					cause = "Access ended"
+				}
+				evidence.Closures = append(evidence.Closures, closureEvidence{next, now, cause})
+			}
 		}
 		evidence.touch(now)
 	}

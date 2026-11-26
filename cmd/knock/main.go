@@ -39,7 +39,7 @@ func root() *cobra.Command {
 	root.PersistentFlags().StringVar(&s.mailbox, "mailbox", "", "Mailbox origin for operator commands")
 	s.requestFlags(root)
 	root.AddCommand(tunnelCommand("up"), tunnelCommand("down"))
-	root.AddCommand(s.identityCommands(), s.doorCommands(), s.revokeCommand(), s.sessionsCommand(), s.requestsCommand(), s.paymentCommand(),
+	root.AddCommand(s.identityCommands(), s.doorCommands(), s.revokeCommand(), s.sessionsCommand(), s.auditCommand(), s.historyCommand(), s.requestsCommand(), s.paymentCommand(),
 		s.decisionCommand("approve", admission.Authorized), s.decisionCommand("deny", admission.Denied))
 	return root
 }

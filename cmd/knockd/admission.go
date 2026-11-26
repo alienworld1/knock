@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"path/filepath"
 	"time"
 
 	"knock/internal/admission"
@@ -127,8 +128,31 @@ func serveAdmission(cmd *cobra.Command, config door.Config, keys *identity.Keys,
 		return command.Exit(2, err)
 	}
 	host := admission.Host{Authority: authority, Keys: keys, Journal: journal, SSH: ssh, Progress: command.Progress}
+	if config.Audit && ssh != nil {
+		credential, err := command.SystemdCredential()
+		if err != nil {
+			return command.Exit(8, err)
+		}
+		host.Audit, err = admission.NewAudit(journal, filepath.Join(filepath.Dir(config.State), filepath.Base(config.State)+".audit.age"), card.Details, credential)
+		clear(credential)
+		if err != nil {
+			return command.Exit(8, err)
+		}
+		defer host.Audit.Clear()
+	}
 	if ssh != nil {
 		group, ctx := errgroup.WithContext(cmd.Context())
+		if host.Audit != nil {
+			// Each worker has its own Mailbox authentication session.
+			auditRelay, err := mailbox.NewClient(config.Mailbox, keys)
+			if err != nil {
+				return command.Exit(2, err)
+			}
+			group.Go(func() error {
+				host.MaintainAudit(ctx, auditRelay)
+				return nil
+			})
+		}
 		if config.Policy.Offer != nil {
 			fmt.Fprintln(cmd.ErrOrStderr(), "Door verified. Private service access requires a purchase.")
 		} else {

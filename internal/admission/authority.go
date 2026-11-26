@@ -26,6 +26,7 @@ type Authority interface {
 	Door(context.Context, string) (door.Card, error)
 	Actor(context.Context, door.Details, string, qoreseal.RecipientCard) (Actor, error)
 	CanAdmit(context.Context, door.Details, common.Hash) (bool, error)
+	SigningKey(context.Context, string) ([]byte, error)
 }
 
 type Diana struct {
@@ -79,6 +80,10 @@ func (d Diana) Actor(ctx context.Context, details door.Details, account string, 
 		return Actor{}, bindingError(err)
 	}
 	return Actor{binding(account, public, recipient), public, recipient}, nil
+}
+
+func (d Diana) SigningKey(ctx context.Context, account string) ([]byte, error) {
+	return d.Native.SigningKey(ctx, account)
 }
 
 func (d Diana) CanAdmit(ctx context.Context, details door.Details, session common.Hash) (bool, error) {

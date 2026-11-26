@@ -204,12 +204,9 @@ func (h Host) inspectSession(ctx context.Context, session journalSession, revoke
 
 func (h Host) recordHostState(request common.Hash, observed lease.Observation) (bool, error) {
 	return h.Journal.editLease(request, func(item *entry) (bool, error) {
-		if !item.advance(observed.State, time.Now().Unix()) {
-			return false, nil
-		}
 		if item.Evidence != nil && item.Evidence.Cause == "" {
 			item.Evidence.Cause = observed.Cause
 		}
-		return true, nil
+		return item.advance(observed.State, time.Now().Unix()), nil
 	})
 }

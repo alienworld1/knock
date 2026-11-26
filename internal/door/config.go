@@ -25,6 +25,7 @@ type Config struct {
 	DoorProfile       string         `json:"doorProfile"`
 	Cards             string         `json:"cards"`
 	Mailbox           string         `json:"mailbox,omitempty"`
+	Audit             bool           `json:"audit,omitempty"`
 	State             string         `json:"state,omitempty"`
 	WireGuardEndpoint string         `json:"wireGuardEndpoint,omitempty"`
 	Policy            Policy         `json:"policy"`
@@ -73,6 +74,9 @@ func LoadConfig(path string) (Config, error) {
 		if config.Mailbox == "" || config.State == "" {
 			return config, errors.New("private access requires a Mailbox and a Door admission state file")
 		}
+	}
+	if config.Audit && config.WireGuardEndpoint == "" {
+		return config, errors.New("audit history requires a configured private access service")
 	}
 	if config.Policy.Enabled && config.Policy.Offer != nil && config.WireGuardEndpoint == "" {
 		return config, errors.New("the metered Door requires a WireGuard endpoint")

@@ -23,6 +23,7 @@ type Host struct {
 	Keys      *identity.Keys
 	Journal   *Journal
 	SSH       *lease.Host
+	Audit     *Audit
 	Progress  func(string)
 	publish   func(context.Context, mailbox.Message) error
 	lookup    func(context.Context, string) (qoreseal.RecipientCard, error)
@@ -48,6 +49,12 @@ func (h Host) Receive(ctx context.Context, message mailbox.Message) error {
 			return h.fulfillPurchase(ctx, wrapper, body, digest)
 		}
 		return nil
+	}
+	if h.Audit != nil {
+		var change signedRotation
+		if open(message.Body, message.ID, auditRotatePurpose, h.Keys.Recipient, 1, &change) == nil {
+			return h.rotateAudit(ctx, message, change)
+		}
 	}
 	var signed signedDecision
 	if err := open(message.Body, message.ID, decisionPurpose, h.Keys.Recipient, 1, &signed); err != nil {
@@ -258,7 +265,7 @@ func (h Host) decide(ctx context.Context, signed signedDecision) error {
 		if err != nil {
 			return err
 		}
-		return h.provision(ctx, body, manifestHash, digest, session, targets, func(ctx context.Context) error {
+		return h.provision(ctx, body, manifestHash, digest, session, common.Hash{}, targets, func(ctx context.Context) error {
 			_, _, err := verify(ctx, true)
 			return err
 		}, checkPolicy)
@@ -340,7 +347,7 @@ func (h Host) Poll(ctx context.Context, relay *mailbox.Client) error {
 			return err
 		}
 	}
-	if err := h.deliverSessionStatus(ctx, relay); err != nil {
+	if err := h.deliverSessionStatus(ctx, relay.Send); err != nil {
 		deferred = err
 	}
 	return deferred

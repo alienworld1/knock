@@ -191,19 +191,19 @@ func (e *EVM) Buy(ctx context.Context, registry Registry, door, commitment commo
 
 func (e *EVM) Consume(ctx context.Context, registry Registry, door, commitment, session common.Hash, version, deadline uint64,
 	keys *identity.Keys, report func(string),
-) error {
+) (common.Hash, error) {
 	block, err := e.registryBlock(ctx, registry)
 	if err != nil {
-		return err
+		return common.Hash{}, err
 	}
 	args := e.abi.Methods["consumePass"].Inputs
 	binding, err := args[1:4].Pack(version, commitment, session)
 	if err != nil {
-		return err
+		return common.Hash{}, err
 	}
 	nonce, signature, err := e.authorization(ctx, registry, block, keys, consumePass, door, crypto.Keccak256Hash(binding), deadline)
 	if err != nil {
-		return err
+		return common.Hash{}, err
 	}
-	return e.mutate(ctx, registry, keys, report, "consumePass", door, version, commitment, session, nonce, deadline, signature)
+	return e.transact(ctx, registry, keys, nil, report, nil, "consumePass", door, version, commitment, session, nonce, deadline, signature)
 }

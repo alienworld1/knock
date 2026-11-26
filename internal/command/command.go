@@ -112,6 +112,15 @@ func Unlock(path, label string) (*identity.Keys, error) {
 }
 
 func SystemdUnlock(path string) (*identity.Keys, error) {
+	value, err := SystemdCredential()
+	if err != nil {
+		return nil, err
+	}
+	defer clear(value)
+	return identity.Unlock(path, value)
+}
+
+func SystemdCredential() ([]byte, error) {
 	directory := os.Getenv("CREDENTIALS_DIRECTORY")
 	if !filepath.IsAbs(directory) {
 		return nil, errors.New("start knockd with its encrypted systemd credential")
@@ -128,9 +137,8 @@ func SystemdUnlock(path string) (*identity.Keys, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer clear(value)
 	// systemd-ask-password writes a single trailing newline in interactive setup.
-	return identity.Unlock(path, bytes.TrimSuffix(value, []byte("\n")))
+	return bytes.TrimSuffix(value, []byte("\n")), nil
 }
 
 func Profile(home, flag string) string {

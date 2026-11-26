@@ -30,9 +30,9 @@ func (f *paymentFixture) Payment(context.Context, chain.Registry, common.Hash) (
 	return f.pass, nil
 }
 
-func (f *paymentFixture) Consume(context.Context, chain.Registry, common.Hash, common.Hash, common.Hash, uint64, uint64, *identity.Keys, func(string)) error {
+func (f *paymentFixture) Consume(context.Context, chain.Registry, common.Hash, common.Hash, common.Hash, uint64, uint64, *identity.Keys, func(string)) (common.Hash, error) {
 	f.consumed++
-	return errors.New("unexpected consumption attempt")
+	return common.Hash{}, errors.New("unexpected consumption attempt")
 }
 
 func TestMeteredDoorRejectsUnfinalizedAndMismatchedPurchases(t *testing.T) {

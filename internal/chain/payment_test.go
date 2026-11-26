@@ -104,14 +104,14 @@ func TestDianaPayment(t *testing.T) {
 	if err != nil || new(big.Int).Sub(after, before).Cmp(offer.Amount) != 0 {
 		t.Fatalf("beneficiary did not receive the exact price: %v", err)
 	}
-	if err := client.Consume(ctx, network.Registry, id, commitment, session, offer.Version, deadline, host, report); err != nil {
+	if _, err := client.Consume(ctx, network.Registry, id, commitment, session, offer.Version, deadline, host, report); err != nil {
 		t.Fatal(err)
 	}
 	pass, err = client.Payment(ctx, network.Registry, commitment)
 	if err != nil || pass.SessionRef != session {
 		t.Fatalf("finalized consumption does not match: %v", err)
 	}
-	if err := client.Consume(ctx, network.Registry, id, commitment, session, offer.Version, deadline, host, report); err == nil {
+	if _, err := client.Consume(ctx, network.Registry, id, commitment, session, offer.Version, deadline, host, report); err == nil {
 		t.Fatal("registry allowed a second consumption")
 	}
 	if err := client.Revoke(ctx, network.Registry, id, session, owner, report); err != nil {

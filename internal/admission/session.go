@@ -12,13 +12,13 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-func (h Host) provision(ctx context.Context, body doorPayload, manifest, decision, session common.Hash, targets []byte, verify, checkPublication func(context.Context) error) error {
+func (h Host) provision(ctx context.Context, body doorPayload, manifest, decision, session, consumptionTx common.Hash, targets []byte, verify, checkPublication func(context.Context) error) error {
 	a := body.Authorization
 	now := time.Now()
 	// Keep the monotonic clock reading while using whole seconds in the signed certificate.
 	issued := now.Add(-time.Duration(now.Nanosecond()))
 	deadline := issued.Add(time.Duration(a.Seconds) * time.Second)
-	record := leaseRecord{ID: session, Issued: issued.Unix(), Deadline: deadline.Unix(), State: lease.Reserved}
+	record := leaseRecord{ID: session, Issued: issued.Unix(), Deadline: deadline.Unix(), State: lease.Reserved, ConsumptionTx: consumptionTx}
 	accepted, err := h.Journal.decide(a.RequestID, manifest, decision, Authorized, nil, &record, targets)
 	if err != nil || !accepted {
 		return err

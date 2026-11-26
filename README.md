@@ -80,6 +80,27 @@ knock sessions show --door validator-ops "$session_id"
 
 The owner and eligible approvers can revoke. The Door checks Diana directly, even if the Mailbox goes offline. Wait for the Door's signed closure evidence to verify enforcement. During a Diana outage, the Door requires fresh verification for new grants and existing grants still expire locally. If status becomes stale, Knock shows the last verified observation. When cleanup is incomplete, the Door retains its ownership record and retries.
 
+## Read audit history
+
+Set `"audit": true` in the Door configuration. On startup, the Door uses its systemd credential to protect the audit epoch file beside its private state database. Back up both files together. Register the auditor identities on Diana and have each publish their recipient card to the Door's Mailbox.
+
+Run `audit rotate` as the Door owner. Start with epoch 0 and supply the complete membership. The Door logs the new epoch when rotation has committed.
+
+```sh
+knock audit rotate --door validator-ops --epoch 0 --member qor1...,qor1...
+knock history list --door validator-ops
+knock history show --door validator-ops "$receipt_id"
+```
+
+Use an auditor's profile to read History. To remove an auditor, rotate from the current epoch with the updated list. Use `--clear` to remove everyone and pause receipt issuance. Former members retain any old receipts and keys they already received. Session status reports receipt availability separately from access closure.
+
+If Mailbox delivery expires, recover the encrypted receipt from the stopped Door. Use the receipt reference in the Door log and an account from the receipt's epoch.
+
+```sh
+sudo knockd --config /etc/knock/door.json audit-export "$receipt_id" --recipient "$auditor" > receipt.sealed
+knock history show --door validator-ops --from receipt.sealed "$receipt_id"
+```
+
 ## Run a Door
 
 Use a dedicated, always-on Ubuntu 24.04 VM with cgroup v2, WireGuard, and nftables. Keep time synchronized and disable suspend. Keep management SSH on a separate network. Knock reserves the `knockdoor` interface, the `knock_ssh` nftables table, `198.19.0.0/28`, and TCP ports 2222–2229 on `198.19.0.1`. For an Approval Door, install OpenSSH and create a local account per concurrent session. The setup below creates two SSH slots. For up to eight, add `knockssh2` through `knockssh7` with the same restrictions.
