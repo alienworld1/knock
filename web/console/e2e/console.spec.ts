@@ -4,6 +4,8 @@ import { expect, test, type Page } from "@playwright/test";
 const requestId = "0x" + "9".repeat(64);
 const sessionId = "0x" + "1".repeat(64);
 const account = "qor1" + "a".repeat(42);
+const receiptId = "0x" + "7".repeat(64);
+const newerReceiptId = "0x" + "6".repeat(64);
 
 async function fixture(
   page: Page,
@@ -26,6 +28,28 @@ async function fixture(
   };
   let phase: "active" | "pending" | "closed" = "active";
   let sessionPolls = 0;
+  const receipt = {
+    ID: receiptId,
+    Epoch: 1,
+    Request: requestId,
+    Session: sessionId,
+    Requester: account,
+    Approver: account,
+    Purchase: "0x" + "0".repeat(64),
+    ConsumptionTx: "0x" + "0".repeat(64),
+    Role: "logs",
+    Service: "",
+    Cause: "Revoked",
+    Cleanup: "Closed",
+    CleanupObservedAt: now - 5,
+    ActiveObservedAt: now - 15,
+    TerminationObservedAt: now - 6,
+    ActualSeconds: 9,
+    RequestedSeconds: 180,
+    RevocationBlock: "0x" + "8".repeat(64),
+    Corrects: "0x" + "0".repeat(64),
+  };
+  const receipts = withReceipt ? [receipt] : [];
   await page.route("**/api/**", async (route) => {
     const requestPath = new URL(route.request().url()).pathname;
     const json = (data: unknown) => route.fulfill({ json: data });
@@ -121,33 +145,7 @@ async function fixture(
               status: 503,
               json: { error: "Receipt updates unavailable." },
             })
-          : json({
-              receipts: withReceipt
-                ? [
-                    {
-                      ID: "0x" + "7".repeat(64),
-                      Epoch: 1,
-                      Request: requestId,
-                      Session: sessionId,
-                      Requester: account,
-                      Approver: account,
-                      Purchase: "0x" + "0".repeat(64),
-                      ConsumptionTx: "0x" + "0".repeat(64),
-                      Role: "logs",
-                      Service: "",
-                      Cause: "Revoked",
-                      Cleanup: "Closed",
-                      CleanupObservedAt: now - 5,
-                      ActiveObservedAt: now - 15,
-                      TerminationObservedAt: now - 6,
-                      ActualSeconds: 9,
-                      RequestedSeconds: 180,
-                      RevocationBlock: "0x" + "8".repeat(64),
-                      Corrects: "0x" + "0".repeat(64),
-                    },
-                  ]
-                : [],
-            });
+          : json({ receipts });
       default:
         return route.fulfill({
           status: 404,
@@ -155,6 +153,10 @@ async function fixture(
         });
     }
   });
+  return {
+    addReceipt: () =>
+      receipts.push({ ...receipt, ID: newerReceiptId, CleanupObservedAt: now }),
+  };
 }
 
 test("operator workflow, keyboard confirmation and real routes", async ({
@@ -312,4 +314,40 @@ test("denial delivery, empty Doors and unavailable History are distinct", async 
   await fixture(page, { empty: true });
   await page.goto("/");
   await expect(page.getByText(/No Door Cards/)).toBeVisible();
+});
+
+test("History keeps the receipt in view and copy feedback follows the value", async ({
+  page,
+}) => {
+  const { addReceipt } = await fixture(page, { withReceipt: true });
+  await page.addInitScript((rejectedValue) => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        writeText: async (value: string) => {
+          if (value === rejectedValue) throw new Error("Clipboard denied");
+        },
+      },
+    });
+  }, newerReceiptId);
+  await page.goto("/history");
+  await page.getByText("Verification details").click();
+  const detail = page.getByRole("article");
+  await expect(detail.getByText(receiptId, { exact: true })).toBeVisible();
+
+  addReceipt();
+  await page.getByRole("button", { name: "Refresh" }).click();
+  const newer = page.getByRole("button", { name: /0x666666/ });
+  await expect(newer).toBeVisible();
+  await expect(detail.getByText(receiptId, { exact: true })).toBeVisible();
+
+  const copy = detail.getByRole("button", { name: "Copy receipt ID" });
+  await copy.click();
+  await expect(copy).toHaveText("Copied");
+  await newer.click();
+  await expect(detail.getByText(newerReceiptId, { exact: true })).toBeVisible();
+  await expect(copy).toHaveText("Copy");
+  await copy.click();
+  await expect(
+    detail.getByText("Couldn't copy. Select and copy the value."),
+  ).toBeVisible();
 });

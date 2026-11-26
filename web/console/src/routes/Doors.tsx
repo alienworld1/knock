@@ -9,9 +9,9 @@ import { Requests } from "../components/Requests";
 import { StatusBadge } from "../components/Status";
 import { duration, label, utc } from "../format";
 
-function operatorAccess(card: DoorPolicy) {
-  if (card.canRotate && card.canReview) return "Owner and approver";
-  if (card.canRotate) return "Owner";
+function operatorAccess(card: DoorPolicy, identity?: string) {
+  if (card.owner === identity)
+    return card.canReview ? "Owner and approver" : "Owner";
   if (card.canReview && card.canRevoke) return "Approver and revoker";
   if (card.canReview) return "Approver";
   if (card.canRevoke) return "Revoker";
@@ -20,11 +20,13 @@ function operatorAccess(card: DoorPolicy) {
 
 export function Doors({
   door,
+  identity,
   card,
   warning,
   confirm,
 }: {
   door: Door;
+  identity?: string;
   card?: DoorPolicy;
   warning?: string;
   confirm: Confirm;
@@ -69,7 +71,7 @@ export function Doors({
                     ["Service", card.service],
                     ["Pass duration", duration(card.limit)],
                     ["Price", card.price + " test QOR"],
-                    ["Your access", operatorAccess(card)],
+                    ["Your access", operatorAccess(card, identity)],
                   ]
                 : [
                     ["Roles", card.roles?.join(", ") || "None"],
@@ -92,7 +94,7 @@ export function Doors({
                           ] as [string, ReactNode],
                         ]
                       : []),
-                    ["Your access", operatorAccess(card)],
+                    ["Your access", operatorAccess(card, identity)],
                   ]
             }
           />

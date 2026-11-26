@@ -9,11 +9,11 @@ Two authorization policies share one host enforcement and audit lifecycle:
 
 ## How Knock uses QoreChain
 
-| Integration | Role in Knock | Implementation |
-| --- | --- | --- |
-| QoreSeal (`github.com/qorechain/qoreseal/go`) | Client-side hybrid ML-KEM-1024 + X25519 recipient encryption for split request/approver envelopes, one-time ephemeral reply key for the 256-bit WireGuard PSK, and epoch-rotated encrypted audit receipts | [crypto.go](internal/admission/crypto.go), [request.go](internal/admission/request.go), [audit_epoch.go](internal/admission/audit_epoch.go) |
-| QoreSign (`github.com/qorechain/qoresign/go`) & `qorechain-pqc` | Registered hybrid ML-DSA-87 + secp256k1 account bindings, signed Door Cards, canonical CBOR request manifests, Entry Passes, signed host status, and scoped EVM authorization windows | [native.go](internal/chain/native.go), [evm.go](internal/chain/evm.go), [protocol.go](internal/protocol/protocol.go) |
-| `KnockRegistry` (Diana EVM chain `9800`) | On-chain Door policy commitments, single-use metered passes, and session revocations verified via `pqcKeyStatus` (`0x...a02`) and `pqcVerify` (`0x...a01`) precompiles | [KnockRegistry.sol](contracts/src/KnockRegistry.sol), [registry.go](internal/chain/registry.go) |
+| Integration                                                     | Role in Knock                                                                                                                                                                                             | Implementation                                                                                                                              |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| QoreSeal (`github.com/qorechain/qoreseal/go`)                   | Client-side hybrid ML-KEM-1024 + X25519 recipient encryption for split request/approver envelopes, one-time ephemeral reply key for the 256-bit WireGuard PSK, and epoch-rotated encrypted audit receipts | [crypto.go](internal/admission/crypto.go), [request.go](internal/admission/request.go), [audit_epoch.go](internal/admission/audit_epoch.go) |
+| QoreSign (`github.com/qorechain/qoresign/go`) & `qorechain-pqc` | Registered hybrid ML-DSA-87 + secp256k1 account bindings, signed Door Cards, canonical CBOR request manifests, Entry Passes, signed host status, and scoped EVM authorization windows                     | [native.go](internal/chain/native.go), [evm.go](internal/chain/evm.go), [protocol.go](internal/protocol/protocol.go)                        |
+| `KnockRegistry` (Diana EVM chain `9800`)                        | On-chain Door policy commitments, single-use metered passes, and session revocations verified via `pqcKeyStatus` (`0x...a02`) and `pqcVerify` (`0x...a01`) precompiles                                    | [KnockRegistry.sol](contracts/src/KnockRegistry.sol), [registry.go](internal/chain/registry.go)                                             |
 
 ## Diana testnet verification
 
@@ -68,7 +68,7 @@ bin/knockd mailbox --state "$HOME/.config/knock/mailbox/mailbox.db"
 
 Set `mailbox` and `state` in `door.json` and republish the Door Card with `bin/knockd register --config door.json`. Give the updated Card and `network.json` to the requester and approver. For separate VMs, forward the loopback port over management SSH or front the Mailbox with an HTTPS reverse proxy (`--origin https://...`).
 
-Publish the approver's registered recipient card once, then submit a request and review it from separate terminals:
+Start the Door and prepare the requester using the [host setup below](#run-a-door). Publish the approver's recipient card, then submit a request and review it from separate terminals. Use the request ID printed by the requester as `request_id`.
 
 ```sh
 bin/knock --profile approver.age --mailbox http://127.0.0.1:8180 identity publish
@@ -94,15 +94,16 @@ Launch the local-only console with your operator profile, registry pin, and Door
 bin/knock --profile approver.age --network network.json --cards cards console
 ```
 
-Unlock the profile in the terminal and open the one-time loopback link printed to stdout. Review decrypted requests under **Doors**, track signed host observations and revocations under **Sessions**, and inspect locally decrypted receipts or request audit membership rotation under **History**. Press `Ctrl+C` in the terminal to close the console.
+Unlock the profile in the terminal and open the one-time loopback link printed to stdout. Keep the link private. Review decrypted requests under **Doors**, track signed host observations and revocations under **Sessions**, and inspect locally decrypted receipts or request audit membership rotation under **History**. Press `Ctrl+C` in the terminal to close the console.
 
 ## Buy a service pass
 
-Configure a second Door using [the metered Door example](deploy/door.metered.example.json) with its own profile, state, and Ubuntu VM. Leave `roles` and `approvers` empty, set `approversCanRevoke` to `false`, set `maxDurationSeconds` to the fixed pass duration (up to 3600 seconds), and configure `offer` with a unique 32-byte hex `id`, lowercase `service` name, positive integer `priceUqor` (`1 test QOR = 1,000,000 uqor`), and `beneficiary` account.
+Configure, register, and start a second Door using [the metered Door example](deploy/door.metered.example.json) with its own profile, state, and Ubuntu VM. Leave `roles` and `approvers` empty, set `approversCanRevoke` to `false`, set `maxDurationSeconds` to the fixed pass duration (up to 3600 seconds), and configure `offer` with a unique 32-byte hex `id`, lowercase `service` name, positive integer `priceUqor` (`1 test QOR = 1,000,000 uqor`), and `beneficiary` account.
 
 Verify the Door Card first with `door trust`, then inspect and purchase the pass:
 
 ```sh
+bin/knock --network network.json --cards cards door trust qor1... --alias private-status
 bin/knock --network network.json --cards cards door show private-status
 bin/knock --network network.json --cards cards private-status --tunnel --pay 2m
 bin/knock payment show "$pass_reference"
@@ -145,13 +146,23 @@ bin/knock --profile auditor.age --network network.json --cards cards history sho
 
 Use a dedicated, always-on Ubuntu 24.04 x86-64 host (2 GiB RAM, cgroup v2, WireGuard, nftables, time sync enabled, suspend disabled) with management SSH on a separate interface. Knock reserves the `knockdoor` interface, the `knock_ssh` nftables table, `198.19.0.0/28`, and TCP ports `2222`–`2229` on `198.19.0.1`.
 
-Set `wireGuardEndpoint` in `/etc/knock/door.json` to the reachable numeric address and UDP port (such as `198.18.0.1:48001` in the lab) and allow only that UDP port externally. For an Approval Door, install OpenSSH and create non-root session slot accounts (`knockssh`, `knockssh1`, up to `knockssh7`):
+Set `wireGuardEndpoint` to the reachable numeric address and UDP port (such as `198.18.0.1:48001` in the lab). Allow that UDP port on the Door's external interface. Keep the private listener behind Knock's firewall.
+
+Install the Door configuration, encrypted Door profile, and signed Card under a root-owned `/etc/knock` directory with mode `0700`. Set the encrypted profile to mode `0600` and check that `doorProfile` and `cards` resolve to the installed paths. Keep the owner profile on the operator machine.
+
+For an Approval Door, install OpenSSH and create the non-root session accounts you need. This example creates two slots.
+
+```sh
+sudo useradd --system --no-create-home --home-dir / --shell /bin/sh --password NP knockssh
+sudo useradd --system --no-create-home --home-dir / --shell /bin/sh --password NP knockssh1
+sudo install -d -m 0755 /run/sshd
+```
+
+Install the service and its drop-in for either Door mode.
 
 ```sh
 sudo install -m 0755 bin/knockd /usr/local/bin/knockd
-sudo useradd --system --no-create-home --home-dir / --shell /bin/sh --password NP knockssh
-sudo useradd --system --no-create-home --home-dir / --shell /bin/sh --password NP knockssh1
-sudo install -d -m 0755 /run/sshd /etc/systemd/system/knockd.service.d
+sudo install -d -m 0755 /etc/systemd/system/knockd.service.d
 systemd-ask-password 'Door passphrase' |
   sudo systemd-creds encrypt --name=door-passphrase --with-key=host - /etc/knock/door.cred
 sudo install -m 0644 deploy/systemd/knockd.service /etc/systemd/system/knockd.service
@@ -172,7 +183,7 @@ deploy/lab/probe.sh /tmp/knock-lab
 deploy/lab/stop.sh /tmp/knock-lab
 ```
 
-`probe.sh` creates the `door`, `requester`, `outsider`, and `requester2` guests and independently verifies pre-admission service isolation, certificate principal enforcement, kernel nftables timeout expiry independent of `sshd`, and cgroup descendant termination.
+`start.sh` creates the `door`, `requester`, `outsider`, and `requester2` guests. `probe.sh` checks pre-admission service isolation, certificate principals, nftables expiry independent of `sshd`, and cgroup cleanup.
 
 ## Security model and known limits
 

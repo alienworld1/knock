@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"net/http"
@@ -128,7 +127,7 @@ func (c *operatorConsole) inspectDoor(w http.ResponseWriter, r *http.Request) {
 			Approvers: d.Policy.Approvers, ApproversCanRevoke: d.Policy.ApproversCanRevoke,
 			Service: service, Price: price, Beneficiary: beneficiary,
 			CanReview: d.Policy.Enabled && slices.Contains(d.Policy.Approvers, account),
-			CanRevoke: d.Policy.Enabled && canRevoke(card, account),
+			CanRevoke: canRevoke(card, account),
 			CanRotate: d.Policy.Enabled && d.Owner == account, Owner: d.Owner,
 			SigningKey: d.SigningKey, Registry: d.Registry.Address, CardExpires: d.Expires,
 		})
@@ -296,25 +295,8 @@ func (c *operatorConsole) sessions(w http.ResponseWriter, r *http.Request) {
 	})
 	items := make([]consoleSession, 0, len(records))
 	now := time.Now()
-	sessionRank := func(record admission.SessionStatus) int {
-		switch record.State {
-		case lease.CleanupIncomplete:
-			return 0
-		case lease.Closed:
-			return 2
-		default:
-			return 1
-		}
-	}
-	slices.SortFunc(records, func(a, b admission.SessionStatus) int {
-		if rank := cmp.Compare(sessionRank(a), sessionRank(b)); rank != 0 {
-			return rank
-		}
-		if obs := cmp.Compare(b.Observed, a.Observed); obs != 0 {
-			return obs
-		}
-		return strings.Compare(a.Session.Hex(), b.Session.Hex())
-	})
+	// Keep rows in place as polling updates the observations.
+	slices.SortFunc(records, func(a, b admission.SessionStatus) int { return strings.Compare(a.Session.Hex(), b.Session.Hex()) })
 	for _, record := range records {
 		display := displaySession(now, &record, loadErr != nil)
 		progress, _ := c.revocations.Load(record.Session)

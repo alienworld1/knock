@@ -70,7 +70,7 @@ func (s *settings) requestFlags(root *cobra.Command) {
 				return command.Exit(2, fmt.Errorf("enter a printable reason of up to %d bytes", admission.MaxReason))
 			}
 		}
-		command.Wait(cmd.ErrOrStderr(), "Resolving "+args[0]+"…")
+		command.Wait(cmd.ErrOrStderr(), "Resolving Door…")
 		return s.withDoor(cmd, args[0], func(ctx context.Context, evm *chain.EVM, card door.Card) error {
 			if s.mailbox != "" && s.mailbox != card.Details.Mailbox {
 				return command.Exit(3, errors.New("the Mailbox origin differs from the signed Door Card"))

@@ -186,6 +186,7 @@ export function Console() {
                 element={
                   <Doors
                     door={door}
+                    identity={local.data?.identity}
                     card={card.data}
                     warning={card.error}
                     confirm={confirm}

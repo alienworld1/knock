@@ -44,7 +44,7 @@ func formatQOR(uqor uint64) string {
 }
 
 func (s *settings) buyPass(cmd *cobra.Command, target string, duration time.Duration, price uint64) error {
-	command.Wait(cmd.ErrOrStderr(), "Resolving "+target+"…")
+	command.Wait(cmd.ErrOrStderr(), "Resolving Door…")
 	return s.withDoor(cmd, target, func(ctx context.Context, evm *chain.EVM, card door.Card) error {
 		d := card.Details
 		if d.Mode != door.Metered || !d.Policy.Enabled || uint64(duration/time.Second) != d.Policy.MaxDurationSeconds {

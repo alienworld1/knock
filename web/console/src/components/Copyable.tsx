@@ -12,43 +12,11 @@ export function Copyable({
   label: string;
   href?: string;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 2000);
-    return () => window.clearTimeout(timer);
-  }, [copied]);
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-    } catch {
-      setCopied(false);
-    }
-  }
-
   return (
     <span className="inline-flex max-w-full flex-wrap items-center gap-2 whitespace-normal">
       <code>{value}</code>
       <span className="inline-flex items-center gap-1.5">
-        <button
-          type="button"
-          className="inline-flex min-h-8 items-center gap-1 px-2 py-1 text-xs max-md:min-h-11"
-          aria-label={copied ? "Copied " + label : "Copy " + label}
-          onClick={() => void copy()}
-        >
-          {copied ? (
-            <>
-              <CheckIcon size={14} aria-hidden /> Copied
-            </>
-          ) : (
-            <>
-              <CopyIcon size={14} aria-hidden /> Copy
-            </>
-          )}
-        </button>
+        <CopyButton key={value} value={value} label={label} />
         {href ? (
           <a
             href={href}
@@ -61,9 +29,56 @@ export function Copyable({
           </a>
         ) : null}
       </span>
-      <span className="sr-only" role="status">
-        {copied ? "Copied " + label : ""}
-      </span>
     </span>
+  );
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [status, setStatus] = useState<"copied" | "failed">();
+
+  useEffect(() => {
+    if (status !== "copied") return;
+    const timer = window.setTimeout(() => setStatus(undefined), 2000);
+    return () => window.clearTimeout(timer);
+  }, [status]);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setStatus("copied");
+    } catch {
+      setStatus("failed");
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="inline-flex min-h-8 items-center gap-1 px-2 py-1 text-xs max-md:min-h-11"
+        aria-label={"Copy " + label}
+        onClick={() => void copy()}
+      >
+        {status === "copied" ? (
+          <>
+            <CheckIcon size={14} aria-hidden /> Copied
+          </>
+        ) : (
+          <>
+            <CopyIcon size={14} aria-hidden /> Copy
+          </>
+        )}
+      </button>
+      <span
+        className={status === "failed" ? "text-xs text-danger" : "sr-only"}
+        role="status"
+      >
+        {status === "failed"
+          ? "Couldn't copy. Select and copy the value."
+          : status === "copied"
+            ? "Copied " + label
+            : ""}
+      </span>
+    </>
   );
 }

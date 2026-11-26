@@ -34,6 +34,7 @@ export function History({
     (a, b) => b.CleanupObservedAt - a.CleanupObservedAt,
   );
   const selected = items.find((item) => item.ID === selection) ?? items[0];
+  if (selected && selected.ID !== selection) setSelection(selected.ID);
   const latestEpoch = items.reduce((max, item) => Math.max(max, item.Epoch), 0);
 
   return (
@@ -70,7 +71,7 @@ export function History({
                     </span>
                     <code>
                       {short(item.ID)} · Epoch {item.Epoch}
-                      {corrected ? " · Corrected" : ""}
+                      {corrected ? " · Correction" : ""}
                     </code>
                   </span>
                   <time
