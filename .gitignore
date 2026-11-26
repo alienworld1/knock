@@ -18,3 +18,7 @@ agent-docs
 /web/console/test-results/
 /cmd/knock/consoleassets/*
 !/cmd/knock/consoleassets/.keep
+
+/docs/node_modules/
+/docs/dist/
+/docs/.astro/

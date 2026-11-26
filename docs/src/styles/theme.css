@@ -1,0 +1,276 @@
+:root {
+  --k-font-sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --k-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* Dark palette (first-run default) */
+  --k-canvas: #242824;
+  --k-surface: #30362e;
+  --k-elevated: #383e36;
+  --k-border: #51594d;
+  --k-control: #808b79;
+  --k-text: #f2efe5;
+  --k-muted: #b7bdb0;
+  --k-accent: #dbad64;
+  --k-action-bg: #dbad64;
+  --k-action-hover: #ecc080;
+  --k-action-text: #242824;
+  --k-success: #8db89c;
+  --k-warning: #e5c17a;
+  --k-danger: #f09b8b;
+  --k-focus: #f2ce91;
+
+  --k-success-bg: #27382e;
+  --k-warning-bg: #3b3322;
+  --k-danger-bg: #3e2724;
+  --k-info-bg: #2a332e;
+
+  color-scheme: dark;
+
+  /* Starlight semantic mappings (dark) */
+  --sl-font: var(--k-font-sans);
+  --sl-font-mono: var(--k-font-mono);
+  --sl-color-white: #f2efe5;
+  --sl-color-gray-1: #f2efe5;
+  --sl-color-gray-2: #d8d6cc;
+  --sl-color-gray-3: #b7bdb0;
+  --sl-color-gray-4: #808b79;
+  --sl-color-gray-5: #51594d;
+  --sl-color-gray-6: #30362e;
+  --sl-color-black: #242824;
+
+  --sl-color-accent-low: #383e36;
+  --sl-color-accent: #dbad64;
+  --sl-color-accent-high: #dbad64;
+
+  --sl-color-text: #f2efe5;
+  --sl-color-text-accent: #dbad64;
+  --sl-color-text-invert: #242824;
+  --sl-color-bg: #242824;
+  --sl-color-bg-nav: #30362e;
+  --sl-color-bg-sidebar: #30362e;
+  --sl-color-bg-inline-code: #383e36;
+  --sl-color-bg-accent: #dbad64;
+  --sl-color-hairline-light: #51594d;
+  --sl-color-hairline: #51594d;
+  --sl-color-hairline-shade: #51594d;
+
+  --sl-color-blue-low: var(--k-info-bg);
+  --sl-color-blue: var(--k-accent);
+  --sl-color-blue-high: var(--k-accent);
+  --sl-color-purple-low: var(--k-success-bg);
+  --sl-color-purple: var(--k-success);
+  --sl-color-purple-high: var(--k-success);
+  --sl-color-orange-low: var(--k-warning-bg);
+  --sl-color-orange: var(--k-warning);
+  --sl-color-orange-high: var(--k-warning);
+  --sl-color-red-low: var(--k-danger-bg);
+  --sl-color-red: var(--k-danger);
+  --sl-color-red-high: var(--k-danger);
+  --sl-color-green-low: var(--k-success-bg);
+  --sl-color-green: var(--k-success);
+  --sl-color-green-high: var(--k-success);
+}
+
+:root[data-theme="light"] {
+  /* Light palette */
+  --k-canvas: #f2efe5;
+  --k-surface: #faf8f1;
+  --k-elevated: #e8e5da;
+  --k-border: #c7c5b9;
+  --k-control: #777d70;
+  --k-text: #242824;
+  --k-muted: #555f51;
+  --k-accent: #79551c;
+  --k-action-bg: #dbad64;
+  --k-action-hover: #ecc080;
+  --k-action-text: #242824;
+  --k-success: #326747;
+  --k-warning: #805718;
+  --k-danger: #a3362b;
+  --k-focus: #79551c;
+
+  --k-success-bg: #e7f0e9;
+  --k-warning-bg: #f5edd9;
+  --k-danger-bg: #f6e6e3;
+  --k-info-bg: #ece9de;
+
+  color-scheme: light;
+
+  /* Starlight semantic mappings (light) */
+  --sl-color-white: #242824;
+  --sl-color-gray-1: #242824;
+  --sl-color-gray-2: #353b34;
+  --sl-color-gray-3: #555f51;
+  --sl-color-gray-4: #777d70;
+  --sl-color-gray-5: #c7c5b9;
+  --sl-color-gray-6: #e8e5da;
+  --sl-color-gray-7: #faf8f1;
+  --sl-color-black: #f2efe5;
+
+  --sl-color-accent-low: #e8e5da;
+  --sl-color-accent: #79551c;
+  --sl-color-accent-high: #79551c;
+
+  --sl-color-text: #242824;
+  --sl-color-text-accent: #79551c;
+  --sl-color-text-invert: #faf8f1;
+  --sl-color-bg: #f2efe5;
+  --sl-color-bg-nav: #faf8f1;
+  --sl-color-bg-sidebar: #faf8f1;
+  --sl-color-bg-inline-code: #e8e5da;
+  --sl-color-bg-accent: #79551c;
+  --sl-color-hairline-light: #c7c5b9;
+  --sl-color-hairline: #c7c5b9;
+  --sl-color-hairline-shade: #c7c5b9;
+
+  --sl-color-blue-low: var(--k-info-bg);
+  --sl-color-blue: var(--k-accent);
+  --sl-color-blue-high: var(--k-accent);
+  --sl-color-purple-low: var(--k-success-bg);
+  --sl-color-purple: var(--k-success);
+  --sl-color-purple-high: var(--k-success);
+  --sl-color-orange-low: var(--k-warning-bg);
+  --sl-color-orange: var(--k-warning);
+  --sl-color-orange-high: var(--k-warning);
+  --sl-color-red-low: var(--k-danger-bg);
+  --sl-color-red: var(--k-danger);
+  --sl-color-red-high: var(--k-danger);
+  --sl-color-green-low: var(--k-success-bg);
+  --sl-color-green: var(--k-success);
+  --sl-color-green-high: var(--k-success);
+}
+
+html {
+  background-color: var(--k-canvas);
+  color: var(--k-text);
+  font-family: var(--k-font-sans);
+}
+
+body {
+  background-color: var(--k-canvas);
+  color: var(--k-text);
+  font-family: var(--k-font-sans);
+}
+
+:focus-visible {
+  outline: 2px solid var(--k-focus);
+  outline-offset: 3px;
+}
+
+/* Starlight utility and layout refinements to match Warm Industrial Utility */
+.header {
+  border-bottom-color: var(--k-border);
+}
+
+.sidebar-pane {
+  background-color: var(--k-surface);
+  border-inline-end-color: var(--k-border);
+}
+
+.sidebar-content a[aria-current="page"],
+.sidebar-content a[aria-current="page"]:hover,
+.sidebar-content a[aria-current="page"]:focus {
+  background-color: var(--k-elevated);
+  color: var(--k-text);
+  font-weight: 600;
+  border: 1px solid var(--k-control);
+  box-shadow: inset 3px 0 0 var(--k-accent);
+}
+
+.sl-markdown-content {
+  font-size: 0.9375rem;
+  line-height: 1.65;
+}
+
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3 {
+  letter-spacing: -0.015em;
+}
+
+.sl-markdown-content code:not(pre code) {
+  background-color: var(--k-elevated);
+  border: 1px solid var(--k-border);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  font-size: 0.84375rem;
+  color: var(--k-text);
+}
+
+.sl-markdown-content table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.sl-markdown-content th,
+.sl-markdown-content td {
+  border-color: var(--k-border);
+}
+
+.sl-markdown-content th {
+  background-color: var(--k-surface);
+  font-weight: 600;
+}
+
+.starlight-aside {
+  border-radius: 6px;
+  border: 1px solid var(--k-border);
+  border-inline-start: 3px solid var(--sl-color-asides-border);
+  color: var(--k-text);
+}
+
+.starlight-aside__content {
+  color: var(--k-text);
+}
+
+/* Search button alignment with control border */
+site-search button[data-open-modal] {
+  border-color: var(--k-control);
+  background-color: var(--k-canvas);
+  color: var(--k-muted);
+  border-radius: 4px;
+}
+
+site-search button[data-open-modal]:hover {
+  border-color: var(--k-accent);
+  color: var(--k-text);
+}
+
+starlight-menu-button button {
+  background-color: var(--k-canvas);
+  color: var(--k-text);
+  border: 1px solid var(--k-control);
+  border-radius: 4px;
+  box-shadow: none;
+}
+
+starlight-menu-button button:hover,
+starlight-menu-button button[aria-expanded="true"] {
+  background-color: var(--k-elevated);
+  border-color: var(--k-accent);
+}
+
+/* Pagination cards */
+.pagination-links a {
+  background-color: var(--k-surface);
+  border: 1px solid var(--k-border);
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.pagination-links a:hover {
+  border-color: var(--k-control);
+  background-color: var(--k-elevated);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+}

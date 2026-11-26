@@ -1,0 +1,943 @@
+---
+import "@fontsource/ibm-plex-sans/400.css";
+import "@fontsource/ibm-plex-sans/500.css";
+import "@fontsource/ibm-plex-sans/600.css";
+import "@fontsource/ibm-plex-mono/400.css";
+import "@fontsource/ibm-plex-mono/500.css";
+import "../styles/theme.css";
+
+import AccessInstrument from "../components/AccessInstrument.astro";
+import Mark from "../components/Mark.astro";
+import ThemeProvider from "../components/ThemeProvider.astro";
+import ThemeSelect from "../components/ThemeSelect.astro";
+import { withBase } from "../utils/url";
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href={withBase("/favicon.svg")} />
+    <title>knock | A front door for private Linux servers</title>
+    <meta
+      name="description"
+      content="Temporary, verified SSH and service tunnels for private Linux servers. Ask by name, verify on QoreChain, and close cleanly when time runs out."
+    />
+    <ThemeProvider />
+  </head>
+  <body>
+    <a class="k-skip" href="#main-content">Skip to content</a>
+
+    <header class="k-header" data-k-header>
+      <div class="k-header-inner">
+        <a class="k-brand-link" href={withBase("/")} aria-label="knock home">
+          <Mark />
+        </a>
+
+        <nav class="k-nav" aria-label="Primary">
+          <a href={withBase("/getting-started/overview/")}>Docs</a>
+          <a href={withBase("/getting-started/quickstart/")}>Quickstart</a>
+          <a href={withBase("/cli/knock/")}>CLI</a>
+          <a href={withBase("/security/threat-model/")}>Security</a>
+          <a href="https://github.com/alienworld1/knock">GitHub</a>
+        </nav>
+
+        <div class="k-header-tools">
+          <ThemeSelect />
+        </div>
+
+        <div class="k-mobile-menu">
+          <button
+            type="button"
+            class="k-mobile-trigger"
+            aria-expanded="false"
+            aria-controls="k-mobile-panel"
+            data-mobile-toggle
+          >
+            Menu
+          </button>
+          <div id="k-mobile-panel" class="k-mobile-panel" hidden>
+            <a href={withBase("/getting-started/overview/")}>Docs</a>
+            <a href={withBase("/getting-started/quickstart/")}>Quickstart</a>
+            <a href={withBase("/cli/knock/")}>CLI</a>
+            <a href={withBase("/security/threat-model/")}>Security</a>
+            <a href="https://github.com/alienworld1/knock">GitHub</a>
+            <div class="k-mobile-theme">
+              <ThemeSelect />
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="k-hero">
+        <div class="k-container k-hero-inner">
+          <h1 class="k-hero-title">A front door for private Linux servers.</h1>
+          <p class="k-hero-lead">
+            Ask by name, get scoped access for a fixed time, and close cleanly
+            when the clock runs out.
+          </p>
+          <div class="k-hero-actions">
+            <a
+              class="k-btn-primary"
+              href={withBase("/getting-started/overview/")}
+            >
+              Read the docs
+            </a>
+          </div>
+          <AccessInstrument />
+        </div>
+      </section>
+
+      <section class="k-band k-band--surface">
+        <div class="k-container">
+          <h2 class="k-h2">Request by name, connect, and close cleanly.</h2>
+          <p class="k-body k-intro">
+            Temporary server access usually leaves behind pasted IP addresses,
+            forgotten WireGuard peers, and SSH sessions that keep running after
+            the key is deleted. Knock keeps every session bounded from the
+            start.
+          </p>
+
+          <ol class="k-steps">
+            <li class="k-step">
+              <span class="k-step-num" aria-hidden="true">1</span>
+              <div>
+                <h3 class="k-step-title">Share a name, not a front-door key</h3>
+                <p class="k-body">
+                  Requesters ask a verified Door account by local alias instead
+                  of holding a standing VPN file or public SSH port. Connection
+                  details exist only after approval or payment.
+                </p>
+              </div>
+            </li>
+            <li class="k-step">
+              <span class="k-step-num" aria-hidden="true">2</span>
+              <div>
+                <h3 class="k-step-title">
+                  Keep approval separate from connection secrets
+                </h3>
+                <p class="k-body">
+                  Approvers decrypt why someone wants in without receiving
+                  tunnel keys. The Door checks policy without reading the
+                  reason, and the Mailbox delivers opaque sealed envelopes it
+                  cannot open.
+                </p>
+              </div>
+            </li>
+            <li class="k-step">
+              <span class="k-step-num" aria-hidden="true">3</span>
+              <div>
+                <h3 class="k-step-title">
+                  Enforce the clock directly on the host
+                </h3>
+                <p class="k-body">
+                  Approved or paid grants receive a fresh 256-bit WireGuard PSK,
+                  a kernel nftables timed permit, a short-lived SSH certificate,
+                  and a per-session systemd cgroup with a hard deadline.
+                </p>
+              </div>
+            </li>
+            <li class="k-step">
+              <span class="k-step-num" aria-hidden="true">4</span>
+              <div>
+                <h3 class="k-step-title">
+                  Verify that cleanup actually happened
+                </h3>
+                <p class="k-body">
+                  When time runs out or an operator revokes a session on
+                  QoreChain Diana, the host tears down the peer, permit,
+                  listener, and child processes. Knock reports Closed only after
+                  those checks pass.
+                </p>
+              </div>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="k-band">
+        <div class="k-container k-split">
+          <div class="k-split-lead">
+            <h2 class="k-h2">Built for small teams and outside engineers.</h2>
+            <p class="k-body">
+              Knock fits teams running validators, private RPC nodes, or staging
+              machines who occasionally need an outside specialist to look at a
+              problem without joining a permanent corporate VPN.
+            </p>
+          </div>
+
+          <ul class="k-ledger">
+            <li class="k-ledger-row">
+              <h3 class="k-ledger-title">Server operators</h3>
+              <p class="k-body">
+                Keep servers quiet and locked down without leaving stray SSH
+                keys or long-lived VPN peers behind after maintenance ends.
+              </p>
+            </li>
+            <li class="k-ledger-row">
+              <h3 class="k-ledger-title">Outside engineers</h3>
+              <p class="k-body">
+                Run one readable command from the terminal to inspect logs or a
+                stalled service without copying IPs or editing SSH configs.
+              </p>
+            </li>
+            <li class="k-ledger-row">
+              <h3 class="k-ledger-title">On-call approvers</h3>
+              <p class="k-body">
+                Read who is asking, which role they want, for how long, and why.
+                Grant that exact scope, deny it, or revoke an active session.
+              </p>
+            </li>
+            <li class="k-ledger-row">
+              <h3 class="k-ledger-title">Independent service builders</h3>
+              <p class="k-body">
+                Sell fixed-time access to a private HTTP or RPC endpoint with a
+                Metered Door, verified directly on Diana without user accounts.
+              </p>
+            </li>
+            <li class="k-ledger-row">
+              <h3 class="k-ledger-title">Auditors</h3>
+              <p class="k-body">
+                Verify signed session receipts sealed to the current audit group
+                and rotate membership without gaining live SSH access.
+              </p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="k-band k-band--surface">
+        <div class="k-container">
+          <h2 class="k-h2">Each party sees only what its job requires.</h2>
+          <p class="k-body k-intro">
+            Separate keys and split QoreSeal envelopes keep responsibilities
+            isolated across the requester, approvers, the Door host, auditors,
+            and the Mailbox relay.
+          </p>
+
+          <div class="k-table-wrap">
+            <table class="k-table">
+              <thead>
+                <tr>
+                  <th scope="col">Record or secret</th>
+                  <th scope="col">Requester</th>
+                  <th scope="col">Approver</th>
+                  <th scope="col">Door host</th>
+                  <th scope="col">Auditor</th>
+                  <th scope="col">Mailbox</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Door identity and policy</td>
+                  <td>Yes</td>
+                  <td>Yes</td>
+                  <td>Yes</td>
+                  <td>Yes</td>
+                  <td>Public</td>
+                </tr>
+                <tr>
+                  <td>Private approval reason</td>
+                  <td>Yes</td>
+                  <td>Yes</td>
+                  <td>No</td>
+                  <td>No</td>
+                  <td>Ciphertext only</td>
+                </tr>
+                <tr>
+                  <td>Tunnel endpoint, PSK, SSH cert</td>
+                  <td>After grant</td>
+                  <td>No</td>
+                  <td>Yes</td>
+                  <td>No</td>
+                  <td>Ciphertext only</td>
+                </tr>
+                <tr>
+                  <td>Signed session receipt</td>
+                  <td>No</td>
+                  <td>No</td>
+                  <td>Yes</td>
+                  <td>Current epoch</td>
+                  <td>Ciphertext only</td>
+                </tr>
+                <tr>
+                  <td>Revocations and metered passes</td>
+                  <td>Public chain</td>
+                  <td>Public chain</td>
+                  <td>Public chain</td>
+                  <td>Public chain</td>
+                  <td>Not involved</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="k-exclusions">
+            <h3 class="k-exclusions-title">
+              What Knock intentionally leaves out
+            </h3>
+            <div class="k-exclusions-grid">
+              <div class="k-exclusion-item">
+                <h4>No always-on team VPN</h4>
+                <p class="k-body">
+                  Knock handles temporary, just-in-time access. For permanent
+                  employee mesh networking, use WireGuard or Tailscale directly.
+                </p>
+              </div>
+              <div class="k-exclusion-item">
+                <h4>No unrestricted root shell</h4>
+                <p class="k-body">
+                  Approval Doors expose bounded roles like read-only logs or a
+                  contained maintenance command, not arbitrary port forwarding.
+                </p>
+              </div>
+              <div class="k-exclusion-item">
+                <h4>No hosted control plane</h4>
+                <p class="k-body">
+                  No sign-ups, no cloud dashboard holding private keys, and no
+                  mandatory browser relay. Keys stay on your machine.
+                </p>
+              </div>
+              <div class="k-exclusion-item">
+                <h4>No overstated security claims</h4>
+                <p class="k-body">
+                  Knock states clearly what QoreChain, QoreSeal, and the Linux
+                  kernel protect, and documents where every boundary stops.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="k-band">
+        <div class="k-container">
+          <h2 class="k-h2">Start with the CLI or deploy a Door.</h2>
+          <p class="k-body k-intro">
+            Follow the quickstart on QoreChain Diana testnet or inspect the
+            reference pages for host setup and security limits.
+          </p>
+
+          <ul class="k-doc-index">
+            <li>
+              <a href={withBase("/getting-started/quickstart/")}>
+                <span class="k-doc-title">Quickstart</span>
+                <span class="k-doc-desc">
+                  Initialize profiles, deploy KnockRegistry, and run your first
+                  approval and metered sessions.
+                </span>
+              </a>
+            </li>
+            <li>
+              <a href={withBase("/concepts/approval-doors/")}>
+                <span class="k-doc-title">Approval and Metered Doors</span>
+                <span class="k-doc-desc">
+                  Compare human request review against single-use paid passes on
+                  Diana.
+                </span>
+              </a>
+            </li>
+            <li>
+              <a href={withBase("/cli/knock/")}>
+                <span class="k-doc-title">CLI reference</span>
+                <span class="k-doc-desc">
+                  Every command, flag, JSON output, and exit code for knock and
+                  knockd.
+                </span>
+              </a>
+            </li>
+            <li>
+              <a href={withBase("/operations/host-setup/")}>
+                <span class="k-doc-title">Host setup and Linux lab</span>
+                <span class="k-doc-desc">
+                  Provision Ubuntu 24.04 with WireGuard, nftables, OpenSSH, and
+                  the four-guest KVM verification lab.
+                </span>
+              </a>
+            </li>
+            <li>
+              <a href={withBase("/security/threat-model/")}>
+                <span class="k-doc-title">Architecture and threat model</span>
+                <span class="k-doc-desc">
+                  Trust boundaries, QoreSeal and QoreSign cryptography, contract
+                  precompiles, and known limits.
+                </span>
+              </a>
+            </li>
+          </ul>
+
+          <div class="k-cta-row">
+            <a
+              class="k-btn-primary"
+              href={withBase("/getting-started/quickstart/")}
+            >
+              Follow the quickstart
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="k-footer">
+      <div class="k-container k-footer-inner">
+        <Mark compact />
+        <p class="k-footer-meta">
+          Apache-2.0 License. Built for Linux and QoreChain Diana testnet.
+        </p>
+        <div class="k-footer-links">
+          <a href={withBase("/getting-started/overview/")}>Documentation</a>
+          <a href="https://github.com/alienworld1/knock">Source on GitHub</a>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      const header = document.querySelector("[data-k-header]");
+      if (header) {
+        const updateHeader = () => {
+          header.classList.toggle("is-scrolled", window.scrollY > 16);
+        };
+        updateHeader();
+        window.addEventListener("scroll", updateHeader, { passive: true });
+      }
+
+      const menuToggle = document.querySelector<HTMLButtonElement>(
+        "[data-mobile-toggle]",
+      );
+      const menuPanel = document.getElementById("k-mobile-panel");
+      if (menuToggle && menuPanel) {
+        const setOpen = (open: boolean) => {
+          menuToggle.setAttribute("aria-expanded", String(open));
+          menuPanel.hidden = !open;
+        };
+        menuToggle.addEventListener("click", () => {
+          const isOpen = menuToggle.getAttribute("aria-expanded") === "true";
+          setOpen(!isOpen);
+        });
+        document.addEventListener("keydown", (event) => {
+          if (
+            event.key === "Escape" &&
+            menuToggle.getAttribute("aria-expanded") === "true"
+          ) {
+            setOpen(false);
+            menuToggle.focus();
+          }
+        });
+        document.addEventListener("click", (event) => {
+          if (
+            event.target instanceof Node &&
+            !menuToggle.contains(event.target) &&
+            !menuPanel.contains(event.target)
+          ) {
+            setOpen(false);
+          }
+        });
+      }
+    </script>
+  </body>
+</html>
+
+<style>
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--k-canvas);
+    color: var(--k-text);
+    font-family: var(--k-font-sans);
+    font-size: 1rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a {
+    color: var(--k-accent);
+  }
+
+  .k-skip {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    padding: 0.75rem 1rem;
+    background-color: var(--k-surface);
+    color: var(--k-text);
+    border: 1px solid var(--k-focus);
+    z-index: 100;
+  }
+
+  .k-skip:focus {
+    left: 1rem;
+    top: 1rem;
+  }
+
+  .k-header {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    background-color: var(--k-canvas);
+    border-bottom: 1px solid transparent;
+    transition:
+      border-color 180ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .k-header.is-scrolled {
+    border-bottom-color: var(--k-border);
+  }
+
+  .k-header-inner {
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 0.875rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+  }
+
+  .k-brand-link {
+    text-decoration: none;
+    flex-shrink: 0;
+  }
+
+  .k-nav {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin-left: auto;
+  }
+
+  .k-nav a {
+    color: var(--k-muted);
+    text-decoration: none;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: color 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .k-nav a:hover {
+    color: var(--k-text);
+  }
+
+  .k-header-tools {
+    flex-shrink: 0;
+  }
+
+  .k-mobile-menu {
+    display: none;
+  }
+
+  .k-container {
+    max-width: 67.5rem;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+  }
+
+  .k-hero {
+    padding: 2rem 0 4rem;
+  }
+
+  .k-hero-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .k-hero-title {
+    margin: 0 0 1rem;
+    max-width: 17ch;
+    font-size: clamp(2.5rem, 5.2vw, 4.25rem);
+    font-weight: 600;
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    color: var(--k-text);
+  }
+
+  .k-hero-lead {
+    margin: 0 0 1.5rem;
+    max-width: 44ch;
+    font-size: 1rem;
+    line-height: 1.55;
+    color: var(--k-muted);
+  }
+
+  .k-hero-actions {
+    margin-bottom: 2rem;
+  }
+
+  .k-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem;
+    padding: 0.625rem 1.25rem;
+    background-color: var(--k-action-bg);
+    color: var(--k-action-text);
+    border: 1px solid var(--k-action-bg);
+    border-radius: 4px;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition:
+      background-color 120ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .k-btn-primary:hover {
+    background-color: var(--k-action-hover);
+  }
+
+  .k-btn-primary:active {
+    transform: translateY(1px);
+  }
+
+  .k-band {
+    padding: 4.5rem 0;
+    border-top: 1px solid var(--k-border);
+  }
+
+  .k-band--surface {
+    background-color: var(--k-surface);
+  }
+
+  /* Strictly 3 sizes below hero: 1.5rem (h2), 1rem (body/h3), 0.875rem (meta/table) */
+  .k-h2 {
+    margin: 0 0 0.875rem;
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.28;
+    letter-spacing: -0.015em;
+    color: var(--k-text);
+  }
+
+  .k-body {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.6;
+    color: var(--k-muted);
+    max-width: 65ch;
+  }
+
+  .k-intro {
+    margin-bottom: 2.5rem;
+  }
+
+  .k-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--k-border);
+  }
+
+  .k-step {
+    display: grid;
+    grid-template-columns: 3rem minmax(0, 1fr);
+    gap: 1.25rem;
+    padding: 1.5rem 0;
+    border-bottom: 1px solid var(--k-border);
+    align-items: start;
+  }
+
+  .k-step-num {
+    font-family: var(--k-font-mono);
+    font-size: 1rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--k-accent);
+    padding-top: 0.125rem;
+  }
+
+  .k-step-title {
+    margin: 0 0 0.375rem;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.45;
+    color: var(--k-text);
+  }
+
+  .k-split {
+    display: grid;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    gap: 3rem;
+    align-items: start;
+  }
+
+  .k-split-lead {
+    position: sticky;
+    top: 5.5rem;
+  }
+
+  .k-ledger {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--k-border);
+  }
+
+  .k-ledger-row {
+    padding: 1.25rem 0;
+    border-bottom: 1px solid var(--k-border);
+  }
+
+  .k-ledger-title {
+    margin: 0 0 0.375rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--k-text);
+  }
+
+  .k-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--k-border);
+    border-radius: 6px;
+    background-color: var(--k-canvas);
+  }
+
+  .k-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    text-align: left;
+  }
+
+  .k-table th,
+  .k-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--k-border);
+    vertical-align: top;
+  }
+
+  .k-table th {
+    color: var(--k-text);
+    font-weight: 600;
+    background-color: var(--k-elevated);
+    white-space: nowrap;
+  }
+
+  .k-table td {
+    color: var(--k-muted);
+  }
+
+  .k-table td:first-child {
+    color: var(--k-text);
+    font-weight: 500;
+  }
+
+  .k-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .k-exclusions {
+    margin-top: 3rem;
+    padding-top: 2.5rem;
+    border-top: 1px solid var(--k-border);
+  }
+
+  .k-exclusions-title {
+    margin: 0 0 1.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--k-text);
+  }
+
+  .k-exclusions-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.75rem 3rem;
+  }
+
+  .k-exclusion-item h4 {
+    margin: 0 0 0.375rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--k-text);
+  }
+
+  .k-doc-index {
+    list-style: none;
+    margin: 0 0 2rem;
+    padding: 0;
+    border-top: 1px solid var(--k-border);
+  }
+
+  .k-doc-index li {
+    border-bottom: 1px solid var(--k-border);
+  }
+
+  .k-doc-index a {
+    display: grid;
+    grid-template-columns: minmax(14rem, 0.45fr) minmax(0, 1fr);
+    gap: 1rem;
+    padding: 1rem 0;
+    text-decoration: none;
+    align-items: baseline;
+    transition: background-color 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .k-doc-index a:hover .k-doc-title {
+    color: var(--k-accent);
+  }
+
+  .k-doc-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--k-text);
+    transition: color 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .k-doc-desc {
+    font-size: 1rem;
+    color: var(--k-muted);
+  }
+
+  .k-cta-row {
+    display: flex;
+  }
+
+  .k-footer {
+    border-top: 1px solid var(--k-border);
+    background-color: var(--k-surface);
+    padding: 2rem 0;
+  }
+
+  .k-footer-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .k-footer-meta {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--k-muted);
+  }
+
+  .k-footer-links {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.875rem;
+  }
+
+  .k-footer-links a {
+    color: var(--k-accent);
+    text-decoration: none;
+  }
+
+  .k-footer-links a:hover {
+    text-decoration: underline;
+  }
+
+  @media (max-width: 820px) {
+    .k-split {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 2rem;
+    }
+
+    .k-split-lead {
+      position: static;
+    }
+
+    .k-exclusions-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .k-doc-index a {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.25rem;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .k-nav,
+    .k-header-tools {
+      display: none;
+    }
+
+    .k-mobile-menu {
+      display: block;
+      position: relative;
+    }
+
+    .k-mobile-trigger {
+      display: inline-flex;
+      align-items: center;
+      min-height: 2.5rem;
+      padding: 0.375rem 0.75rem;
+      border: 1px solid var(--k-control);
+      border-radius: 4px;
+      background-color: var(--k-surface);
+      color: var(--k-text);
+      font-family: var(--k-font-sans);
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    .k-mobile-panel {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 0.5rem);
+      min-width: 14rem;
+      padding: 0.75rem 1rem;
+      background-color: var(--k-surface);
+      border: 1px solid var(--k-control);
+      border-radius: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.625rem;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+      z-index: 50;
+    }
+
+    .k-mobile-panel[hidden] {
+      display: none;
+    }
+
+    .k-mobile-panel a {
+      color: var(--k-text);
+      text-decoration: none;
+      font-size: 0.9375rem;
+      padding: 0.25rem 0;
+    }
+
+    .k-mobile-theme {
+      padding-top: 0.5rem;
+      border-top: 1px solid var(--k-border);
+    }
+
+    .k-hero {
+      padding: 2.25rem 0 3rem;
+    }
+
+    .k-band {
+      padding: 3rem 0;
+    }
+
+    .k-step {
+      grid-template-columns: 2rem minmax(0, 1fr);
+      gap: 0.75rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .k-header,
+    .k-nav a,
+    .k-btn-primary,
+    .k-doc-index a,
+    .k-doc-title {
+      transition: none;
+    }
+  }
+</style>

@@ -1,0 +1,40 @@
+---
+
+---
+
+<script is:inline>
+  window.StarlightThemeProvider = (() => {
+    const storageKey = "starlight-theme";
+    const raw =
+      typeof localStorage !== "undefined"
+        ? localStorage.getItem(storageKey)
+        : null;
+    const pref =
+      raw === "light" || raw === "dark" || raw === "system" ? raw : "dark";
+    const resolve = (value) =>
+      value === "system"
+        ? window.matchMedia("(prefers-color-scheme: light)").matches
+          ? "light"
+          : "dark"
+        : value;
+    document.documentElement.dataset.theme = resolve(pref);
+
+    return {
+      updatePickers(theme) {
+        const active =
+          theme === "light" || theme === "dark" || theme === "system"
+            ? theme
+            : pref;
+        document
+          .querySelectorAll(
+            "starlight-theme-select select, [data-knock-theme-select]",
+          )
+          .forEach((select) => {
+            if (select instanceof HTMLSelectElement) {
+              select.value = active;
+            }
+          });
+      },
+    };
+  })();
+</script>

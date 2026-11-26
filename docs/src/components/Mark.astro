@@ -1,0 +1,49 @@
+---
+interface Props {
+  compact?: boolean;
+}
+const { compact = false } = Astro.props;
+---
+
+<span class:list={["k-mark", { "k-mark--compact": compact }]}>
+  <svg
+    viewBox="0 0 24 24"
+    width={compact ? "22" : "26"}
+    height={compact ? "22" : "26"}
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+    aria-hidden="true"
+  >
+    <path d="M2.5 21.5h19m-17-0.5v-17h13v17M8 21.5v-16l7-2v18"></path>
+    <circle cx="12.5" cy="13" r="0.9" fill="currentColor" stroke="none"
+    ></circle>
+  </svg>
+  <span class="k-mark__text">knock</span>
+</span>
+
+<style>
+  .k-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--k-accent);
+    line-height: 1;
+  }
+
+  :global(:root[data-theme="light"]) .k-mark {
+    color: var(--k-text);
+  }
+
+  .k-mark__text {
+    font-family: var(--k-font-sans);
+    font-size: 1.375rem;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    color: var(--k-text);
+  }
+
+  .k-mark--compact .k-mark__text {
+    font-size: 1.25rem;
+  }
+</style>

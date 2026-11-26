@@ -1,0 +1,129 @@
+---
+interface Props {
+  id?: string;
+}
+const { id } = Astro.props;
+---
+
+<starlight-theme-select>
+  <label class="k-theme-label" for={id}>
+    <span class="k-theme-text">Theme</span>
+    <select id={id} data-knock-theme-select aria-label="Theme">
+      <option value="dark">Dark</option>
+      <option value="light">Light</option>
+      <option value="system">System</option>
+    </select>
+  </label>
+</starlight-theme-select>
+
+<script is:inline>
+  if (window.StarlightThemeProvider) {
+    window.StarlightThemeProvider.updatePickers();
+  }
+</script>
+
+<script>
+  declare global {
+    interface Window {
+      StarlightThemeProvider?: {
+        updatePickers(theme?: string): void;
+      };
+    }
+  }
+
+  type ThemePref = "dark" | "light" | "system";
+
+  const storageKey = "starlight-theme";
+
+  const parsePref = (value: unknown): ThemePref =>
+    value === "light" || value === "dark" || value === "system"
+      ? value
+      : "dark";
+
+  const loadPref = (): ThemePref => {
+    if (typeof localStorage === "undefined") return "dark";
+    return parsePref(localStorage.getItem(storageKey));
+  };
+
+  const resolveTheme = (pref: ThemePref): "dark" | "light" => {
+    if (pref === "system") {
+      return window.matchMedia("(prefers-color-scheme: light)").matches
+        ? "light"
+        : "dark";
+    }
+    return pref;
+  };
+
+  function applyTheme(pref: ThemePref, persist = true): void {
+    document.documentElement.dataset.theme = resolveTheme(pref);
+    if (persist && typeof localStorage !== "undefined") {
+      localStorage.setItem(storageKey, pref);
+    }
+    if (window.StarlightThemeProvider) {
+      window.StarlightThemeProvider.updatePickers(pref);
+    }
+  }
+
+  window
+    .matchMedia("(prefers-color-scheme: light)")
+    .addEventListener("change", () => {
+      if (loadPref() === "system") {
+        applyTheme("system", false);
+      }
+    });
+
+  class StarlightThemeSelect extends HTMLElement {
+    constructor() {
+      super();
+      const current = loadPref();
+      applyTheme(current, false);
+      const select = this.querySelector("select");
+      if (select instanceof HTMLSelectElement) {
+        select.value = current;
+        select.addEventListener("change", (event) => {
+          if (event.currentTarget instanceof HTMLSelectElement) {
+            applyTheme(parsePref(event.currentTarget.value));
+          }
+        });
+      }
+    }
+  }
+
+  if (!customElements.get("starlight-theme-select")) {
+    customElements.define("starlight-theme-select", StarlightThemeSelect);
+  }
+</script>
+
+<style>
+  .k-theme-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--k-muted);
+  }
+
+  .k-theme-text {
+    font-weight: 400;
+  }
+
+  select {
+    min-height: 2.25rem;
+    padding: 0.25rem 0.625rem;
+    border: 1px solid var(--k-control);
+    border-radius: 4px;
+    background-color: var(--k-surface);
+    color: var(--k-text);
+    font-family: var(--k-font-sans);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition:
+      border-color 120ms cubic-bezier(0.22, 1, 0.36, 1),
+      background-color 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  select:hover {
+    background-color: var(--k-elevated);
+    border-color: var(--k-accent);
+  }
+</style>

@@ -1,0 +1,18 @@
+---
+import Mark from "./Mark.astro";
+import { withBase } from "../utils/url";
+---
+
+<a href={withBase("/")} class="k-site-title" aria-label="knock home">
+  <Mark compact />
+</a>
+
+<style>
+  .k-site-title {
+    display: inline-flex;
+    align-items: center;
+    text-decoration: none;
+    padding: 0.25rem 0;
+    white-space: nowrap;
+  }
+</style>

@@ -1,0 +1,762 @@
+---
+// Interactive access lifecycle workbench illustrating Approval Door and Metered Door behavior.
+---
+
+<section class="k-instrument" aria-label="Interactive access lifecycle">
+  <div class="k-inst-toolbar">
+    <div class="k-segmented" role="radiogroup" aria-label="Door mode">
+      <button
+        type="button"
+        role="radio"
+        aria-checked="true"
+        class="k-seg-btn"
+        data-mode="approval"
+      >
+        Approval Door
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked="false"
+        class="k-seg-btn"
+        data-mode="metered"
+      >
+        Metered Door
+      </button>
+    </div>
+
+    <div class="k-tabs" role="tablist" aria-label="Access stages">
+      <button
+        type="button"
+        role="tab"
+        aria-selected="true"
+        class="k-tab-btn"
+        data-stage="request"
+      >
+        Request
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected="false"
+        class="k-tab-btn"
+        data-stage="authorize"
+      >
+        Authorize
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected="false"
+        class="k-tab-btn"
+        data-stage="connect"
+      >
+        Connect
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected="false"
+        class="k-tab-btn"
+        data-stage="close"
+      >
+        Close
+      </button>
+    </div>
+  </div>
+
+  <div class="k-inst-body">
+    <div class="k-pane k-pane--terminal">
+      <div class="k-pane-bar">
+        <span class="k-pane-label" data-inst-actor>Requester terminal</span>
+        <button type="button" class="k-copy-btn" data-inst-copy>Copy</button>
+      </div>
+      <div class="k-cmd-box">
+        <pre
+          class="k-cmd"><code data-inst-command>knock validator-ops --ssh --role logs --for 15m --reason -</code></pre>
+      </div>
+      <pre
+        class="k-output"
+        data-inst-output>Resolving validator-ops
+Door identity verified
+Sealing request to Door and approvers
+Waiting for approval (expires in 5m)</pre>
+    </div>
+
+    <div class="k-pane k-pane--host">
+      <div class="k-pane-bar">
+        <span class="k-pane-label">Door and session state</span>
+        <span class="k-state-tag" data-inst-tone="warning">
+          <svg
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="9"></circle>
+            <path d="M12 7v5l3 2"></path>
+          </svg>
+          <span data-inst-state>Waiting for approval</span>
+        </span>
+      </div>
+
+      <div class="k-duration-block" data-inst-duration-block>
+        <div class="k-duration-head">
+          <span class="k-duration-title" data-inst-timer-label>
+            Requested window
+          </span>
+          <span class="k-duration-value" data-inst-timer> 15m requested </span>
+        </div>
+        <div
+          class="k-rail"
+          role="progressbar"
+          aria-label="Session duration"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+          data-inst-rail
+        >
+          <div class="k-rail-fill" data-inst-fill style="width: 0%"></div>
+        </div>
+        <div class="k-duration-foot">
+          <span data-inst-expiry>No active grant yet</span>
+          <span data-inst-scope>SSH, role logs</span>
+        </div>
+      </div>
+
+      <dl class="k-facts" data-inst-facts>
+        <div class="k-fact-row">
+          <dt>Door</dt>
+          <dd data-inst-door>validator-ops</dd>
+        </div>
+        <div class="k-fact-row">
+          <dt>Authorization</dt>
+          <dd data-inst-auth>One-approver Entry Pass</dd>
+        </div>
+        <div class="k-fact-row">
+          <dt>Host boundary</dt>
+          <dd data-inst-host>No peer or permit installed</dd>
+        </div>
+      </dl>
+
+      <p class="k-inst-note" data-inst-note>
+        The Door sees the requested role, duration, and temporary keys. Only
+        approvers read the private reason.
+      </p>
+    </div>
+  </div>
+</section>
+
+<script>
+  type Mode = "approval" | "metered";
+  type Stage = "request" | "authorize" | "connect" | "close";
+
+  interface StageData {
+    actor: string;
+    command: string;
+    output: string;
+    state: string;
+    tone: "warning" | "success" | "neutral";
+    timerLabel: string;
+    timerValue: string;
+    railPercent: number;
+    railVisible: boolean;
+    expiry: string;
+    scope: string;
+    door: string;
+    auth: string;
+    host: string;
+    note: string;
+  }
+
+  const scenarios: Record<Mode, Record<Stage, StageData>> = {
+    approval: {
+      request: {
+        actor: "Requester terminal",
+        command: "knock validator-ops --ssh --role logs --for 15m --reason -",
+        output:
+          "Resolving validator-ops\nDoor identity verified\nSealing request to Door and approvers\nWaiting for approval (expires in 5m)",
+        state: "Waiting for approval",
+        tone: "warning",
+        timerLabel: "Requested window",
+        timerValue: "15m requested",
+        railPercent: 0,
+        railVisible: false,
+        expiry: "No active grant yet",
+        scope: "SSH, role logs",
+        door: "validator-ops",
+        auth: "One-approver Entry Pass",
+        host: "No peer or permit installed",
+        note: "The Door sees the requested role, duration, and temporary keys. Only approvers read the private reason.",
+      },
+      authorize: {
+        actor: "Approver terminal",
+        command: "knock approve 7b9e...41a2",
+        output:
+          "Requester identity verified\nDoor: validator-ops  Role: logs  Duration: 15m\nReason: Investigate stalled validator\nSigned Entry Pass sealed to Door",
+        state: "Entry Pass verified",
+        tone: "warning",
+        timerLabel: "Approved window",
+        timerValue: "15m fixed",
+        railPercent: 0,
+        railVisible: false,
+        expiry: "Starts on host issuance",
+        scope: "SSH, role logs",
+        door: "validator-ops",
+        auth: "Signed off-chain Entry Pass",
+        host: "Provisioning WireGuard peer and SSH CA cert",
+        note: "The approver verifies intent and signs the exact scope without seeing connection endpoints or tunnel secrets.",
+      },
+      connect: {
+        actor: "Requester terminal",
+        command: "knock validator-ops --ssh --role logs --for 15m --reason -",
+        output:
+          "Identity verified\nAccess granted\n\nDoor       validator-ops\nRole       logs\nExpires    19:52:00 IST (15m)\n\nConnected.",
+        state: "Active",
+        tone: "success",
+        timerLabel: "Remaining time",
+        timerValue: "12m 48s remaining",
+        railPercent: 85,
+        railVisible: true,
+        expiry: "Expires 19:52 IST",
+        scope: "SSH, role logs",
+        door: "validator-ops",
+        auth: "Fresh 256-bit PSK sealed to one-time key",
+        host: "Timed nftables permit and systemd cgroup active",
+        note: "The Door monitors Diana directly every 2 seconds while enforcing the hard deadline locally on the Linux kernel.",
+      },
+      close: {
+        actor: "Operator terminal",
+        command: "knock revoke --door validator-ops 3c4f...90d1",
+        output:
+          "Revocation confirmed on Diana.\n\nDoor       validator-ops\nState      Closed (Revocation enforced)\nCleanup    Peer, permit, SSH unit, and cgroup verified empty",
+        state: "Closed",
+        tone: "success",
+        timerLabel: "Session ended",
+        timerValue: "00m 00s remaining",
+        railPercent: 0,
+        railVisible: true,
+        expiry: "Closed at 19:44 IST",
+        scope: "SSH, role logs",
+        door: "validator-ops",
+        auth: "Revoked on Diana, single-use consumed",
+        host: "WireGuard peer, permit, and SSH unit removed",
+        note: "Closed appears only after kernel and systemd postconditions verify empty. A signed Receipt seals to the audit group.",
+      },
+    },
+    metered: {
+      request: {
+        actor: "Requester terminal",
+        command: "knock private-status --tunnel --pay 2m",
+        output:
+          "Resolving private-status\nDoor       private-status\nService    private-status\nDuration   2m\nPrice      0.01 test QOR (10000 uqor)",
+        state: "Purchase required",
+        tone: "warning",
+        timerLabel: "Offered pass",
+        timerValue: "2m fixed pass",
+        railPercent: 0,
+        railVisible: false,
+        expiry: "Starts after finalized payment",
+        scope: "Tunnel, HTTP /status",
+        door: "private-status",
+        auth: "KnockRegistry on Diana (chain 9800)",
+        host: "No peer or permit installed",
+        note: "The CLI displays the exact quoted amount and duration before confirming a purchase transaction on Diana.",
+      },
+      authorize: {
+        actor: "Requester terminal",
+        command: "knock private-status --tunnel --pay 2m --price-uqor 10000",
+        output:
+          "Purchase finalized on Diana\nDoor verified buyer, amount, and beneficiary\nConsuming single-use pass on KnockRegistry\nOpening connection response",
+        state: "Pass consumed",
+        tone: "warning",
+        timerLabel: "Purchased pass",
+        timerValue: "2m fixed",
+        railPercent: 0,
+        railVisible: false,
+        expiry: "Starts on host issuance",
+        scope: "Tunnel, HTTP /status",
+        door: "private-status",
+        auth: "PQ-signed purchase and Door consumption",
+        host: "Provisioning WireGuard peer and /status permit",
+        note: "The Door verifies finalized contract state itself rather than trusting a client-reported transaction hash.",
+      },
+      connect: {
+        actor: "Requester terminal",
+        command: "knock private-status --tunnel --pay 2m",
+        output:
+          "Identity verified\nPass verified\n\nDoor       private-status\nService    private-status (198.19.0.1)\nExpires    20:04:00 IST (2m)\n\nTunnel active.",
+        state: "Active",
+        tone: "success",
+        timerLabel: "Remaining time",
+        timerValue: "01m 42s remaining",
+        railPercent: 85,
+        railVisible: true,
+        expiry: "Expires 20:04 IST",
+        scope: "Tunnel, HTTP /status",
+        door: "private-status",
+        auth: "Single-use pass bound to request digest",
+        host: "Timed nftables permit and /status route open",
+        note: "Traffic flows directly over WireGuard to the private service. Reconnecting never extends the issued expiry.",
+      },
+      close: {
+        actor: "Requester terminal",
+        command: "knock payment show 0x91ab...c802",
+        output:
+          "Pass       0x91ab...c802\nState      Consumed and closed (Expired)\nCleanup    WireGuard peer and timed permit removed\nReceipt    Signed and sealed to audit group",
+        state: "Closed",
+        tone: "success",
+        timerLabel: "Session ended",
+        timerValue: "00m 00s remaining",
+        railPercent: 0,
+        railVisible: true,
+        expiry: "Closed at 20:04 IST",
+        scope: "Tunnel, HTTP /status",
+        door: "private-status",
+        auth: "Non-transferable pass settled to beneficiary",
+        host: "WireGuard peer and timed nftables set removed",
+        note: "At zero, the kernel drops the timed permit regardless of client state and records cleanup results in the Receipt.",
+      },
+    },
+  };
+
+  const root = document.querySelector(".k-instrument");
+  if (root) {
+    let mode: Mode = "approval";
+    let stage: Stage = "connect";
+
+    const modeButtons = root.querySelectorAll<HTMLButtonElement>("[data-mode]");
+    const stageButtons =
+      root.querySelectorAll<HTMLButtonElement>("[data-stage]");
+    const copyBtn = root.querySelector<HTMLButtonElement>("[data-inst-copy]");
+
+    const actorEl = root.querySelector("[data-inst-actor]");
+    const cmdEl = root.querySelector("[data-inst-command]");
+    const outputEl = root.querySelector("[data-inst-output]");
+    const stateEl = root.querySelector("[data-inst-state]");
+    const toneEl = root.querySelector<HTMLElement>("[data-inst-tone]");
+    const timerLabelEl = root.querySelector("[data-inst-timer-label]");
+    const timerEl = root.querySelector("[data-inst-timer]");
+    const railEl = root.querySelector<HTMLElement>("[data-inst-rail]");
+    const fillEl = root.querySelector<HTMLElement>("[data-inst-fill]");
+    const expiryEl = root.querySelector("[data-inst-expiry]");
+    const scopeEl = root.querySelector("[data-inst-scope]");
+    const doorEl = root.querySelector("[data-inst-door]");
+    const authEl = root.querySelector("[data-inst-auth]");
+    const hostEl = root.querySelector("[data-inst-host]");
+    const noteEl = root.querySelector("[data-inst-note]");
+
+    function render() {
+      const data = scenarios[mode][stage];
+
+      modeButtons.forEach((btn) => {
+        const active = btn.dataset.mode === mode;
+        btn.setAttribute("aria-checked", String(active));
+      });
+      stageButtons.forEach((btn) => {
+        const active = btn.dataset.stage === stage;
+        btn.setAttribute("aria-selected", String(active));
+      });
+
+      if (actorEl) actorEl.textContent = data.actor;
+      if (cmdEl) cmdEl.textContent = data.command;
+      if (outputEl) outputEl.textContent = data.output;
+      if (stateEl) stateEl.textContent = data.state;
+      if (toneEl) toneEl.dataset.instTone = data.tone;
+      if (timerLabelEl) timerLabelEl.textContent = data.timerLabel;
+      if (timerEl) timerEl.textContent = data.timerValue;
+      if (railEl) {
+        railEl.dataset.railActive = String(data.railVisible);
+        railEl.setAttribute("aria-valuenow", String(data.railPercent));
+      }
+      if (fillEl) fillEl.style.width = `${data.railPercent}%`;
+      if (expiryEl) expiryEl.textContent = data.expiry;
+      if (scopeEl) scopeEl.textContent = data.scope;
+      if (doorEl) doorEl.textContent = data.door;
+      if (authEl) authEl.textContent = data.auth;
+      if (hostEl) hostEl.textContent = data.host;
+      if (noteEl) noteEl.textContent = data.note;
+    }
+
+    modeButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const next = btn.dataset.mode;
+        if (next === "approval" || next === "metered") {
+          mode = next;
+          render();
+        }
+      });
+    });
+
+    stageButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const next = btn.dataset.stage;
+        if (
+          next === "request" ||
+          next === "authorize" ||
+          next === "connect" ||
+          next === "close"
+        ) {
+          stage = next;
+          render();
+        }
+      });
+    });
+
+    if (copyBtn) {
+      copyBtn.addEventListener("click", async () => {
+        const text = scenarios[mode][stage].command;
+        try {
+          await navigator.clipboard.writeText(text);
+          copyBtn.textContent = "Copied";
+          window.setTimeout(() => {
+            copyBtn.textContent = "Copy";
+          }, 1600);
+        } catch {
+          copyBtn.textContent = "Copy";
+        }
+      });
+    }
+
+    render();
+  }
+</script>
+
+<style>
+  .k-instrument {
+    width: 100%;
+    max-width: 67.5rem;
+    margin: 0 auto;
+    background-color: var(--k-surface);
+    border: 1px solid var(--k-border);
+    border-radius: 6px;
+    text-align: left;
+  }
+
+  .k-inst-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--k-border);
+  }
+
+  .k-segmented {
+    display: inline-flex;
+    border: 1px solid var(--k-control);
+    border-radius: 4px;
+    background-color: var(--k-canvas);
+    overflow: hidden;
+  }
+
+  .k-seg-btn {
+    min-height: 2.5rem;
+    padding: 0.375rem 0.875rem;
+    border: 0;
+    background: transparent;
+    color: var(--k-muted);
+    font-family: var(--k-font-sans);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      background-color 120ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .k-seg-btn + .k-seg-btn {
+    border-left: 1px solid var(--k-border);
+  }
+
+  .k-seg-btn[aria-checked="true"] {
+    background-color: var(--k-elevated);
+    color: var(--k-text);
+  }
+
+  .k-seg-btn:hover:not([aria-checked="true"]) {
+    color: var(--k-text);
+  }
+
+  .k-tabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    border: 1px solid var(--k-control);
+    border-radius: 4px;
+    background-color: var(--k-canvas);
+    overflow: hidden;
+  }
+
+  .k-tab-btn {
+    min-height: 2.5rem;
+    padding: 0.375rem 0.875rem;
+    border: 0;
+    background: transparent;
+    color: var(--k-muted);
+    font-family: var(--k-font-sans);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      background-color 120ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .k-tab-btn + .k-tab-btn {
+    border-left: 1px solid var(--k-border);
+  }
+
+  .k-tab-btn[aria-selected="true"] {
+    background-color: var(--k-action-bg);
+    color: var(--k-action-text);
+  }
+
+  .k-tab-btn:hover:not([aria-selected="true"]) {
+    color: var(--k-text);
+    background-color: var(--k-elevated);
+  }
+
+  .k-inst-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  }
+
+  .k-pane {
+    padding: 1rem 1.25rem;
+    min-width: 0;
+  }
+
+  .k-pane--terminal {
+    border-right: 1px solid var(--k-border);
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+
+  .k-pane--host {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+  }
+
+  .k-pane-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    min-height: 2rem;
+  }
+
+  .k-pane-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--k-muted);
+  }
+
+  .k-copy-btn {
+    min-height: 2rem;
+    padding: 0.25rem 0.625rem;
+    border: 1px solid var(--k-control);
+    border-radius: 4px;
+    background-color: var(--k-canvas);
+    color: var(--k-text);
+    font-family: var(--k-font-sans);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      background-color 120ms cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 120ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .k-copy-btn:hover {
+    background-color: var(--k-elevated);
+    border-color: var(--k-accent);
+  }
+
+  .k-cmd-box {
+    background-color: var(--k-canvas);
+    border: 1px solid var(--k-border);
+    border-radius: 4px;
+    padding: 0.625rem 0.875rem;
+  }
+
+  .k-cmd {
+    margin: 0;
+    font-family: var(--k-font-mono);
+    font-size: 0.84375rem;
+    line-height: 1.45;
+    color: var(--k-accent);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .k-output {
+    margin: 0;
+    flex: 1;
+    background-color: var(--k-canvas);
+    border: 1px solid var(--k-border);
+    border-radius: 4px;
+    padding: 0.75rem 0.875rem;
+    font-family: var(--k-font-mono);
+    font-size: 0.84375rem;
+    line-height: 1.5;
+    color: var(--k-text);
+    overflow-x: auto;
+    white-space: pre;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .k-state-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--k-warning);
+  }
+
+  .k-state-tag[data-inst-tone="success"] {
+    color: var(--k-success);
+  }
+
+  .k-duration-block {
+    background-color: var(--k-canvas);
+    border: 1px solid var(--k-border);
+    border-radius: 4px;
+    padding: 0.875rem 1rem;
+  }
+
+  .k-duration-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.625rem;
+  }
+
+  .k-duration-title {
+    font-size: 0.875rem;
+    color: var(--k-muted);
+  }
+
+  .k-duration-value {
+    font-family: var(--k-font-mono);
+    font-size: 1rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--k-text);
+  }
+
+  .k-rail {
+    height: 0.5rem;
+    width: 100%;
+    background-color: var(--k-surface);
+    border: 1px solid var(--k-border);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 0.625rem;
+  }
+
+  .k-rail[data-rail-active="false"] {
+    opacity: 0.45;
+  }
+
+  .k-rail-fill {
+    height: 100%;
+    background-color: var(--k-action-bg);
+    transition: width 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .k-duration-foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--k-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .k-facts {
+    margin: 0;
+    border-top: 1px solid var(--k-border);
+  }
+
+  .k-fact-row {
+    display: grid;
+    grid-template-columns: 8.5rem minmax(0, 1fr);
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--k-border);
+    font-size: 0.875rem;
+  }
+
+  .k-fact-row dt {
+    color: var(--k-muted);
+    font-weight: 400;
+  }
+
+  .k-fact-row dd {
+    margin: 0;
+    color: var(--k-text);
+    font-weight: 500;
+  }
+
+  .k-inst-note {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--k-muted);
+  }
+
+  @media (max-width: 860px) {
+    .k-inst-body {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .k-pane--terminal {
+      border-right: 0;
+      border-bottom: 1px solid var(--k-border);
+    }
+  }
+
+  @media (max-width: 520px) {
+    .k-inst-toolbar {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .k-segmented,
+    .k-tabs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .k-tabs {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .k-tab-btn {
+      padding: 0.375rem 0.25rem;
+    }
+
+    .k-fact-row {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 0.25rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .k-rail-fill,
+    .k-seg-btn,
+    .k-tab-btn,
+    .k-copy-btn {
+      transition: none;
+    }
+  }
+</style>
